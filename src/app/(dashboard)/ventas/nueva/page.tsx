@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/ui/page-header";
@@ -16,9 +17,9 @@ export default async function NuevaVentaPage() {
       },
       orderBy: { name: "asc" },
     }),
-    prisma.business.findUniqueOrThrow({
+    prisma.business.findUnique({
       where: { id: session.user.businessId },
-    }),
+    }).then((b) => { if (!b) redirect("/login"); return b; }),
     prisma.cashSession.findFirst({
       where: { businessId: session.user.businessId, status: "OPEN" },
     }),

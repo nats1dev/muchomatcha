@@ -14,6 +14,16 @@ export function formatMoney(value: number | string, currency = "GTQ") {
   }).format(Number.isFinite(n) ? n : 0);
 }
 
+export function formatCost(value: number | string, currency = "GTQ") {
+  const n = typeof value === "string" ? Number(value) : value;
+  return new Intl.NumberFormat("es-GT", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4,
+  }).format(Number.isFinite(n) ? n : 0);
+}
+
 export function formatQty(value: number | string, decimals = 3) {
   const n = typeof value === "string" ? Number(value) : value;
   return new Intl.NumberFormat("es-GT", {

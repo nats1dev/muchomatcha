@@ -20,7 +20,15 @@ import {
 import { calculateSaleTotals } from "../src/modules/sales/totals";
 import { calculateRecipeUnitCost } from "../src/modules/recipes/cost";
 
-const prisma = new PrismaClient();
+function createSeedClient() {
+  let url = process.env.DATABASE_URL ?? "";
+  url = url.replace(":5432", ":6543");
+  const separator = url.includes("?") ? "&" : "?";
+  url = `${url}${separator}pgbouncer=true&connection_limit=3&pool_timeout=10`;
+  return new PrismaClient({ datasources: { db: { url } } });
+}
+
+const prisma = createSeedClient();
 
 const argonOpts = {
   memoryCost: 19456,
@@ -28,6 +36,8 @@ const argonOpts = {
   outputLen: 32,
   parallelism: 1,
 };
+
+const DEMO_MODE = process.env.SEED_MODE === "demo" || process.argv.includes("--demo");
 
 const SEED_DAYS = 5;
 
@@ -85,7 +95,7 @@ async function main() {
   const owner = await prisma.user.create({
     data: {
       businessId: business.id,
-      name: "Propietario Demo",
+      name: "Propietario",
       email: "owner@muchomatcha.gt",
       passwordHash,
       role: "OWNER",
@@ -98,6 +108,7 @@ async function main() {
     { code: "ml", name: "Mililitro", decimals: 3 },
     { code: "l", name: "Litro", decimals: 3 },
     { code: "u", name: "Unidad", decimals: 0 },
+    { code: "pq", name: "Paquete", decimals: 0 },
   ];
   const units: Record<string, string> = {};
   for (const u of unitDefs) {
@@ -124,6 +135,16 @@ async function main() {
     });
     iCatIds[name] = c.id;
   }
+
+  if (!DEMO_MODE) {
+    console.log("Modo limpio: solo negocio, usuario y unidades base creados.");
+    await applyBiViews(prisma);
+    console.log("Seed limpio completado en", Math.round((Date.now() - t0) / 1000), "segundos.");
+    console.log("Login: owner@muchomatcha.gt / Matcha2026!");
+    return;
+  }
+
+  console.log("Modo demo: poblando datos de ejemplo...");
 
   type IngDef = {
     sku: string;
@@ -327,6 +348,7 @@ async function main() {
       purchaseQuantity: string;
       baseQuantity: string;
       unitCost: string;
+      unitPrice: string;
       lineTotal: string;
     }> = [];
 
@@ -335,6 +357,7 @@ async function main() {
       const factor = ingredientDefs.find((x) => x.sku === item.sku)!.purchase!.factor;
       const baseQty = qtySafe(item.qty * factor);
       const lineTotal = money(item.total * (1 + (i % 3) * 0.02));
+      const unitPrice = money(lineTotal.div(item.qty));
       subtotal = subtotal.plus(lineTotal);
       prepared.push({
         ingredientId: ingredients[item.sku].id,
@@ -342,6 +365,7 @@ async function main() {
         purchaseQuantity: toFixedQty(item.qty),
         baseQuantity: toFixedQty(baseQty),
         unitCost: toFixedCost(lineTotal.div(baseQty)),
+        unitPrice: toFixedMoney(unitPrice),
         lineTotal: toFixedMoney(lineTotal),
       });
     }
@@ -680,21 +704,25 @@ async function main() {
     },
   });
 
-  // Apply BI views
+  await applyBiViews(prisma);
+
+  console.log("Seed completo en", Math.round((Date.now() - t0) / 1000), "segundos.");
+  console.log("Login: owner@muchomatcha.gt / Matcha2026!");
+  console.log("Seed mode: DEMO. Usa SEED_MODE=clean o --clean para arranque limpio.");
+}
+
+async function applyBiViews(client: typeof prisma) {
   console.log("Applying BI views...");
   const sqlPath = join(process.cwd(), "sql", "bi-views.sql");
   const sql = readFileSync(sqlPath, "utf8");
   const parts = sql.split(/;(?:\s*\n|$)/).map((s) => s.trim()).filter(Boolean);
   for (const part of parts) {
     try {
-      await prisma.$executeRawUnsafe(part);
+      await client.$executeRawUnsafe(part);
     } catch (err) {
       console.warn("View statement failed (fine if exists):", (err as any).message);
     }
   }
-
-  console.log("Seed complete in", Math.round((Date.now() - t0) / 1000), "seconds.");
-  console.log("Login: owner@muchomatcha.gt / Matcha2026!");
 }
 
 const t0 = Date.now();

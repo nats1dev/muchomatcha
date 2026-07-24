@@ -1,13 +1,32 @@
 import Link from "next/link";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { formatDateTime } from "@/lib/dates";
+import { formatDateTime, formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { VoidPurchaseButton } from "./void-purchase-button";
+
+const paymentStatusLabel: Record<string, string> = {
+  PAID: "Pagado",
+  PENDING: "Pendiente",
+  PARTIAL: "Parcial",
+};
+
+const paymentStatusVariant: Record<string, "default" | "success" | "warning" | "error"> = {
+  PAID: "success",
+  PENDING: "warning",
+  PARTIAL: "warning",
+};
+
+const paymentMethodLabel: Record<string, string> = {
+  CASH: "Efectivo",
+  CARD: "Tarjeta",
+  TRANSFER: "Transferencia",
+};
 
 export default async function ComprasPage() {
   const session = await auth();
@@ -55,15 +74,17 @@ export default async function ComprasPage() {
                     <th className="px-4 py-3 font-medium">Proveedor</th>
                     <th className="px-4 py-3 font-medium">Documento</th>
                     <th className="px-4 py-3 font-medium">Líneas</th>
+                    <th className="px-4 py-3 font-medium">Pago</th>
                     <th className="px-4 py-3 font-medium">Estado</th>
                     <th className="px-4 py-3 text-right font-medium">Total</th>
+                    <th className="w-10 px-4 py-3" />
                   </tr>
                 </thead>
                 <tbody>
                   {purchases.map((p) => (
                     <tr key={p.id} className="border-b border-border/70">
                       <td className="px-4 py-3 text-muted-foreground">
-                        {formatDateTime(p.purchasedAt)}
+                        {formatDate(p.purchasedAt)}
                       </td>
                       <td className="px-4 py-3 font-medium">
                         {p.supplier.name}
@@ -73,10 +94,31 @@ export default async function ComprasPage() {
                       </td>
                       <td className="px-4 py-3">{p.items.length}</td>
                       <td className="px-4 py-3">
-                        <Badge variant="success">{p.status}</Badge>
+                        <Badge
+                          variant={paymentStatusVariant[p.paymentStatus] ?? "default"}
+                        >
+                          {paymentStatusLabel[p.paymentStatus] ?? p.paymentStatus}
+                        </Badge>
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          {paymentMethodLabel[p.paymentMethod]}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge
+                          variant={
+                            p.status === "RECEIVED" ? "success" : "error"
+                          }
+                        >
+                          {p.status === "RECEIVED" ? "Recibido" : "Anulado"}
+                        </Badge>
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums">
                         {formatMoney(Number(p.total))}
+                      </td>
+                      <td className="px-4 py-3">
+                        {p.status === "RECEIVED" && (
+                          <VoidPurchaseButton purchaseId={p.id} />
+                        )}
                       </td>
                     </tr>
                   ))}

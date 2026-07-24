@@ -43,6 +43,10 @@ export async function listCurrentInventory(businessId: string) {
     include: {
       baseUnit: true,
       category: true,
+      purchaseUnits: {
+        where: { active: true },
+        include: { unit: true },
+      },
     },
     orderBy: { name: "asc" },
   });
@@ -68,6 +72,10 @@ export async function listCurrentInventory(businessId: string) {
       averageCost: avg.toFixed(4),
       value: value.toFixed(2),
       belowMin,
+      purchaseUnits: ing.purchaseUnits.map((pu) => ({
+        unitCode: pu.unit.code,
+        conversionFactor: Number(pu.conversionFactor),
+      })),
     };
   });
 }

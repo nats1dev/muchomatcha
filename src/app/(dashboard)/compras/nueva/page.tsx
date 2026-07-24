@@ -8,7 +8,11 @@ export default async function NuevaCompraPage() {
   if (!session?.user?.businessId) return null;
   const businessId = session.user.businessId;
 
-  const [suppliers, ingredients] = await Promise.all([
+  const [business, suppliers, ingredients, units, ingredientCategories, lastPurchaseItems] = await Promise.all([
+    prisma.business.findUniqueOrThrow({
+      where: { id: businessId },
+      select: { taxRate: true },
+    }),
     prisma.supplier.findMany({
       where: { businessId, active: true },
       orderBy: { name: "asc" },
@@ -24,7 +28,30 @@ export default async function NuevaCompraPage() {
       },
       orderBy: { name: "asc" },
     }),
+    prisma.unit.findMany({
+      where: { businessId, active: true },
+      orderBy: { code: "asc" },
+    }),
+    prisma.ingredientCategory.findMany({
+      where: { businessId, active: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.purchaseItem.findMany({
+      where: {
+        purchase: { businessId, status: "RECEIVED" },
+        unitPrice: { not: 0 },
+      },
+      orderBy: { purchase: { purchasedAt: "desc" } },
+      select: { ingredientId: true, unitPrice: true },
+    }),
   ]);
+
+  const lastUnitPrices: Record<string, number> = {};
+  for (const item of lastPurchaseItems) {
+    if (!(item.ingredientId in lastUnitPrices)) {
+      lastUnitPrices[item.ingredientId] = Number(item.unitPrice);
+    }
+  }
 
   return (
     <div>
@@ -33,6 +60,7 @@ export default async function NuevaCompraPage() {
         description="La recepción actualiza inventario y costo promedio"
       />
       <PurchaseForm
+        taxRate={Number(business.taxRate)}
         suppliers={suppliers.map((s) => ({ id: s.id, name: s.name }))}
         ingredients={ingredients.map((i) => ({
           id: i.id,
@@ -45,6 +73,12 @@ export default async function NuevaCompraPage() {
             conversionFactor: Number(pu.conversionFactor),
           })),
         }))}
+        units={units.map((u) => ({ id: u.id, code: u.code, name: u.name }))}
+        ingredientCategories={ingredientCategories.map((c) => ({
+          id: c.id,
+          name: c.name,
+        }))}
+        lastUnitPrices={lastUnitPrices}
       />
     </div>
   );

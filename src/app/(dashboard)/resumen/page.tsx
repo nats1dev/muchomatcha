@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { auth } from "@/auth";
+import { prisma } from "@/lib/db";
 import { resolvePeriod, type PeriodKey, formatDateTime } from "@/lib/dates";
 import { formatMoney } from "@/lib/utils";
 import { getDashboard } from "@/modules/dashboard/service";
@@ -22,11 +23,17 @@ export default async function ResumenPage({
   const sp = await searchParams;
   const period = (sp.period as PeriodKey) || "today";
   const { from, to } = resolvePeriod(period);
-  const data = await getDashboard({
-    businessId: session.user.businessId,
-    from,
-    to,
-  });
+
+  const [data, ingredientCount] = await Promise.all([
+    getDashboard({
+      businessId: session.user.businessId,
+      from,
+      to,
+    }),
+    prisma.ingredient.count({
+      where: { businessId: session.user.businessId },
+    }),
+  ]);
 
   return (
     <div>
@@ -34,6 +41,24 @@ export default async function ResumenPage({
         title="Resumen"
         description="Ventas, utilidad, caja e inventario en un solo panel"
       />
+
+      {ingredientCount === 0 ? (
+        <div className="mb-4 rounded-[12px] border border-primary/20 bg-primary/5 p-5">
+          <h2 className="text-lg font-semibold">👋 ¡Bienvenido a Café Control!</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Para empezar, configura tus ingredientes y registra tu primer inventario.
+            El setup guiado te llevará paso a paso.
+          </p>
+          <div className="mt-3 flex gap-3">
+            <Button asChild>
+              <Link href="/setup">Comenzar setup guiado</Link>
+            </Button>
+            <Button asChild variant="secondary">
+              <Link href="/compras/nueva">Registrar compra directa</Link>
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard

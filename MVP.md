@@ -357,7 +357,7 @@ La base de datos será PostgreSQL. Todos los identificadores principales utiliza
 | `sales` | Encabezado de venta | `id`, `business_id`, `sale_number`, `sold_at`, `status`, `payment_method`, `subtotal`, `discount_total`, `tax_total`, `total`, `user_id` |
 | `sale_items` | Detalle de venta | `id`, `sale_id`, `product_id`, `quantity`, `unit_price`, `discount`, `tax`, `line_total`, `unit_cost_snapshot` |
 | `purchases` | Encabezado de compra | `id`, `supplier_id`, `document_number`, `purchased_at`, `payment_status`, `subtotal`, `tax_total`, `total`, `user_id` |
-| `purchase_items` | Detalle de compra | `id`, `purchase_id`, `ingredient_id`, `purchase_quantity`, `purchase_unit`, `base_quantity`, `unit_cost`, `line_total`, `expires_at` |
+| `purchase_items` | Detalle de compra | `id`, `purchase_id`, `ingredient_id`, `purchase_quantity`, `purchase_unit`, `base_quantity`, `unit_cost`, `unit_price`, `line_total`, `expires_at` |
 | `inventory_movements` | Kardex de inventario | `id`, `ingredient_id`, `occurred_at`, `movement_type`, `quantity_delta`, `unit_cost`, `reference_type`, `reference_id`, `reason`, `user_id` |
 | `inventory_counts` | Encabezado de conteo | `id`, `business_id`, `counted_at`, `status`, `user_id`, `notes` |
 | `inventory_count_items` | Resultado de conteo | `id`, `count_id`, `ingredient_id`, `theoretical_quantity`, `physical_quantity`, `difference_quantity`, `unit_cost` |

@@ -4,37 +4,83 @@ import { listCurrentInventory } from "@/modules/inventory/stock";
 import { listMovements } from "@/modules/inventory/service";
 import { prisma } from "@/lib/db";
 import { formatDateTime } from "@/lib/dates";
-import { formatMoney, formatQty } from "@/lib/utils";
+import { formatCost, formatQty } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty-state";
 import { AdjustmentForm } from "./adjustment-form";
 import { CountForm } from "./count-form";
+import { InventorySearch } from "./inventory-search";
+import { InventoryTable } from "./inventory-table";
 
 export default async function InventarioPage({
   searchParams,
 }: {
-  searchParams: Promise<{ low?: string }>;
+  searchParams: Promise<{ low?: string; q?: string }>;
 }) {
   const session = await auth();
   if (!session?.user?.businessId) return null;
   const sp = await searchParams;
   const businessId = session.user.businessId;
 
-  const [inventory, movements, ingredients] = await Promise.all([
-    listCurrentInventory(businessId),
-    listMovements(businessId, { take: 30 }),
-    prisma.ingredient.findMany({
-      where: { businessId, active: true },
-      include: { baseUnit: true },
-      orderBy: { name: "asc" },
-    }),
-  ]);
+  const [inventory, movements, ingredients, units, ingredientCategories] =
+    await Promise.all([
+      listCurrentInventory(businessId),
+      listMovements(businessId, { take: 30 }),
+      prisma.ingredient.findMany({
+        where: { businessId, active: true },
+        include: {
+          baseUnit: true,
+          category: true,
+          purchaseUnits: {
+            where: { active: true },
+            include: { unit: true },
+          },
+        },
+        orderBy: { name: "asc" },
+      }),
+      prisma.unit.findMany({
+        where: { businessId, active: true },
+        orderBy: { code: "asc" },
+      }),
+      prisma.ingredientCategory.findMany({
+        where: { businessId, active: true },
+        orderBy: { name: "asc" },
+      }),
+    ]);
 
-  const rows =
-    sp.low === "1" ? inventory.filter((i) => i.belowMin) : inventory;
+  const rows = inventory.filter((i) => {
+    if (sp.low === "1" && !i.belowMin) return false;
+    if (sp.q) {
+      const q = sp.q.toLowerCase();
+      if (
+        !i.name.toLowerCase().includes(q) &&
+        !i.sku.toLowerCase().includes(q) &&
+        !i.category.toLowerCase().includes(q)
+      )
+        return false;
+    }
+    return true;
+  });
+
+  const ingredientData = ingredients.map((i) => ({
+    id: i.id,
+    sku: i.sku,
+    name: i.name,
+    baseUnitId: i.baseUnitId,
+    categoryId: i.categoryId,
+    minimumStock: Number(i.minimumStock),
+    currentAverageCost: Number(i.currentAverageCost),
+    purchaseUnits: i.purchaseUnits.map((pu) => ({
+      id: pu.id,
+      unitId: pu.unitId,
+      unitCode: pu.unit.code,
+      conversionFactor: Number(pu.conversionFactor),
+    })),
+  }));
+
+  const lowHref = `/inventario?low=1${sp.q ? `&q=${encodeURIComponent(sp.q)}` : ""}`;
+  const allHref = `/inventario${sp.q ? `?q=${encodeURIComponent(sp.q)}` : ""}`;
 
   return (
     <div>
@@ -42,72 +88,24 @@ export default async function InventarioPage({
         title="Inventario"
         description="Existencias teóricas, movimientos, mermas y conteos"
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <InventorySearch />
             <Button asChild variant={sp.low === "1" ? "default" : "secondary"}>
-              <Link href="/inventario?low=1">Bajo mínimo</Link>
+              <Link href={lowHref}>Bajo mínimo</Link>
             </Button>
             <Button asChild variant="secondary">
-              <Link href="/inventario">Todos</Link>
+              <Link href={allHref}>Todos</Link>
             </Button>
           </div>
         }
       />
 
-      {!inventory.length ? (
-        <EmptyState title="Registra una compra o un inventario inicial" />
-      ) : (
-        <Card className="mb-4">
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/40 text-left text-muted-foreground">
-                    <th className="px-4 py-3 font-medium">Ingrediente</th>
-                    <th className="px-4 py-3 text-right font-medium">
-                      Existencia
-                    </th>
-                    <th className="px-4 py-3 text-right font-medium">Mín.</th>
-                    <th className="px-4 py-3 text-right font-medium">Costo</th>
-                    <th className="px-4 py-3 text-right font-medium">Valor</th>
-                    <th className="px-4 py-3 font-medium">Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.id} className="border-b border-border/70">
-                      <td className="px-4 py-3">
-                        <p className="font-medium">{row.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {row.sku} · {row.category}
-                        </p>
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        {formatQty(row.quantityNum)} {row.unit}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        {row.minimumStock}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        {formatMoney(Number(row.averageCost))}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        {formatMoney(Number(row.value))}
-                      </td>
-                      <td className="px-4 py-3">
-                        {row.belowMin ? (
-                          <Badge variant="warning">Bajo mínimo</Badge>
-                        ) : (
-                          <Badge variant="success">OK</Badge>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <InventoryTable
+        rows={rows}
+        ingredients={ingredientData}
+        units={units}
+        categories={ingredientCategories}
+      />
 
       <div className="grid gap-4 xl:grid-cols-3">
         <Card>
@@ -152,19 +150,25 @@ export default async function InventarioPage({
                 >
                   <div className="flex justify-between gap-2">
                     <span className="font-medium">{m.ingredient.name}</span>
-                    <span
-                      className={
-                        Number(m.quantityDelta) < 0
-                          ? "text-error tabular-nums"
-                          : "text-success tabular-nums"
-                      }
-                    >
-                      {Number(m.quantityDelta) > 0 ? "+" : ""}
-                      {formatQty(Number(m.quantityDelta))}
-                    </span>
+                    {m.movementType === "COST_ADJUSTMENT" ? (
+                      <span className="tabular-nums text-muted-foreground">
+                        {formatCost(Number(m.unitCost))}
+                      </span>
+                    ) : (
+                      <span
+                        className={
+                          Number(m.quantityDelta) < 0
+                            ? "text-error tabular-nums"
+                            : "text-success tabular-nums"
+                        }
+                      >
+                        {Number(m.quantityDelta) > 0 ? "+" : ""}
+                        {formatQty(Number(m.quantityDelta))}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {m.movementType} · {formatDateTime(m.occurredAt)}
+                    {m.movementType === "COST_ADJUSTMENT" ? "Ajuste de costo" : m.movementType} · {formatDateTime(m.occurredAt)}
                   </p>
                 </li>
               ))}

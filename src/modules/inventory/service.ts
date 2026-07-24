@@ -88,6 +88,13 @@ export async function confirmInventoryCount(params: {
   if (!params.items.length) {
     throw new AppError("Agrega al menos un ingrediente al conteo");
   }
+  const seen = new Set<string>();
+  for (const item of params.items) {
+    if (seen.has(item.ingredientId)) {
+      throw new AppError("No puedes agregar el mismo ingrediente dos veces");
+    }
+    seen.add(item.ingredientId);
+  }
 
   return prisma.$transaction(async (tx) => {
     const ids = params.items.map((i) => i.ingredientId);
@@ -172,6 +179,64 @@ export async function listMovements(
     },
     orderBy: { occurredAt: "desc" },
     take: opts?.take ?? 100,
+  });
+}
+
+export async function createInitialInventory(input: {
+  businessId: string;
+  userId: string;
+  items: Array<{
+    ingredientId: string;
+    quantity: number;
+    unitCost: number;
+  }>;
+}) {
+  if (!input.items.length) {
+    throw new AppError("Agrega al menos un ingrediente");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const movements = [];
+    for (const item of input.items) {
+      if (item.quantity <= 0 || item.unitCost < 0) {
+        throw new AppError("Cantidad debe ser > 0 y costo >= 0");
+      }
+
+      const ingredient = await tx.ingredient.findFirst({
+        where: { id: item.ingredientId, businessId: input.businessId },
+      });
+      if (!ingredient) throw new AppError("Ingrediente no encontrado");
+
+      await tx.ingredient.update({
+        where: { id: item.ingredientId },
+        data: { currentAverageCost: toFixedCost(item.unitCost) },
+      });
+
+      const movement = await tx.inventoryMovement.create({
+        data: {
+          businessId: input.businessId,
+          ingredientId: item.ingredientId,
+          movementType: MovementType.INITIAL,
+          quantityDelta: toFixedQty(item.quantity),
+          unitCost: toFixedCost(item.unitCost),
+          referenceType: "initial",
+          reason: "Inventario inicial",
+          userId: input.userId,
+        },
+      });
+      movements.push(movement);
+    }
+
+    await writeAudit(tx, {
+      businessId: input.businessId,
+      userId: input.userId,
+      action: "CREATE",
+      entityType: "inventory_initial",
+      entityId: "batch",
+      afterData: { count: movements.length },
+    });
+
+    return movements;
   });
 }
 

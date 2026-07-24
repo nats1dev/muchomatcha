@@ -57,6 +57,44 @@ export function IngredientForm({
           defaultValue="0"
         />
       </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="ing-pu-unit">Unidad de compra</Label>
+        <Select id="ing-pu-unit" name="purchaseUnitId" defaultValue="">
+          <option value="">Igual que la unidad base</option>
+          {units.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.code} — {u.name}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="ing-pu-factor">
+          Factor de conversión
+          <span className="text-xs text-muted-foreground ml-1">
+            (1 unidad de compra = ? unidades base)
+          </span>
+        </Label>
+        <Input
+          id="ing-pu-factor"
+          name="conversionFactor"
+          type="number"
+          step="0.001"
+          min="0.001"
+          defaultValue=""
+          placeholder="Ej: 907 si 1 bolsa = 907g"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="ing-image">Imagen</Label>
+        <input
+          id="ing-image"
+          name="image"
+          type="file"
+          accept="image/*"
+          className="block w-full text-sm text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:bg-muted file:text-foreground file:cursor-pointer"
+        />
+      </div>
       {state && !state.ok ? (
         <p className="text-sm text-error">{state.message}</p>
       ) : null}

@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/ui/page-header";
@@ -11,7 +12,7 @@ export default async function ConfiguracionPage() {
   const businessId = session.user.businessId;
 
   const [business, suppliers, units, ingredients] = await Promise.all([
-    prisma.business.findUniqueOrThrow({ where: { id: businessId } }),
+    prisma.business.findUnique({ where: { id: businessId } }).then((b) => { if (!b) redirect("/login"); return b; }),
     prisma.supplier.findMany({
       where: { businessId },
       orderBy: { name: "asc" },

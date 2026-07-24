@@ -1,11 +1,22 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { CashMovementType, ExpenseCategory, PaymentMethod } from "@prisma/client";
+import {
+  CashMovementType,
+  ExpenseCategory,
+  PaymentMethod,
+  PaymentStatus,
+} from "@prisma/client";
+import { prisma } from "@/lib/db";
 import { requireSession } from "@/lib/auth/session";
 import { toActionError, type ActionResult } from "@/lib/errors";
+import {
+  upsertIngredient,
+  upsertIngredientCategory,
+  upsertPurchaseUnit,
+} from "@/modules/catalog/service";
 import { createSale, voidSale } from "@/modules/sales/service";
-import { receivePurchase } from "@/modules/purchases/service";
+import { receivePurchase, voidPurchase } from "@/modules/purchases/service";
 import {
   addCashMovement,
   closeCashSession,
@@ -15,6 +26,7 @@ import { createExpense } from "@/modules/expenses/service";
 import {
   confirmInventoryCount,
   createAdjustment,
+  createInitialInventory,
 } from "@/modules/inventory/service";
 import { saveRecipe, deactivateRecipe, deleteRecipe } from "@/modules/recipes/service";
 
@@ -74,13 +86,17 @@ export async function receivePurchaseAction(payload: {
   supplierId: string;
   documentNumber?: string;
   paymentMethod: PaymentMethod;
+  paymentStatus?: PaymentStatus;
+  purchasedAt?: string;
   taxTotal?: number;
   notes?: string;
   items: Array<{
     ingredientId: string;
     purchaseUnitId: string;
     purchaseQuantity: number;
+    unitPrice: number;
     lineTotal: number;
+    expiresAt?: string | null;
   }>;
 }): Promise<ActionResult<{ purchaseId: string }>> {
   try {
@@ -94,6 +110,98 @@ export async function receivePurchaseAction(payload: {
     revalidatePath("/inventario");
     revalidatePath("/resumen");
     return { ok: true, data: { purchaseId: purchase.id } };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function voidPurchaseAction(payload: {
+  purchaseId: string;
+  reason?: string;
+}): Promise<ActionResult> {
+  try {
+    const user = await requireSession();
+    await voidPurchase({
+      businessId: user.businessId,
+      userId: user.id,
+      ...payload,
+    });
+    revalidatePath("/compras");
+    revalidatePath("/inventario");
+    revalidatePath("/resumen");
+    return { ok: true };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function quickAddIngredientAction(payload: {
+  sku: string;
+  name: string;
+  baseUnitId: string;
+  categoryId?: string | null;
+  purchaseUnitId: string;
+  conversionFactor: number;
+}): Promise<ActionResult<{ ingredientId: string; purchaseUnitId: string }>> {
+  try {
+    const user = await requireSession();
+    const ingredient = await upsertIngredient({
+      businessId: user.businessId,
+      userId: user.id,
+      sku: payload.sku,
+      name: payload.name,
+      baseUnitId: payload.baseUnitId,
+      categoryId: payload.categoryId || null,
+      minimumStock: 0,
+    });
+    const purchaseUnit = await upsertPurchaseUnit({
+      businessId: user.businessId,
+      userId: user.id,
+      ingredientId: ingredient.id,
+      unitId: payload.purchaseUnitId,
+      conversionFactor: payload.conversionFactor,
+    });
+    revalidatePath("/compras");
+    revalidatePath("/productos");
+    revalidatePath("/inventario");
+    return {
+      ok: true,
+      data: { ingredientId: ingredient.id, purchaseUnitId: purchaseUnit.id },
+    };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function quickAddCategoryAction(payload: {
+  name: string;
+}): Promise<ActionResult<{ id: string; name: string }>> {
+  try {
+    const user = await requireSession();
+    const name = payload.name.trim();
+    if (!name) {
+      return { ok: false, message: "El nombre es obligatorio", code: "VALIDATION" };
+    }
+    const existing = await prisma.ingredientCategory.findFirst({
+      where: {
+        businessId: user.businessId,
+        name: { equals: name, mode: "insensitive" },
+      },
+    });
+    if (existing) {
+      return {
+        ok: false,
+        message: `Ya existe una categoría similar: "${existing.name}"`,
+        code: "DUPLICATE",
+      };
+    }
+    const created = await upsertIngredientCategory({
+      businessId: user.businessId,
+      userId: user.id,
+      name,
+    });
+    revalidatePath("/compras");
+    return { ok: true, data: { id: created.id, name: created.name } };
   } catch (e) {
     return toActionError(e);
   }
@@ -222,6 +330,24 @@ export async function confirmCountAction(payload: {
     });
     revalidatePath("/inventario");
     return { ok: true, data: { countId: count.id } };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function createInitialInventoryAction(payload: {
+  items: Array<{ ingredientId: string; quantity: number; unitCost: number }>;
+}): Promise<ActionResult> {
+  try {
+    const user = await requireSession();
+    await createInitialInventory({
+      businessId: user.businessId,
+      userId: user.id,
+      ...payload,
+    });
+    revalidatePath("/inventario");
+    revalidatePath("/resumen");
+    return { ok: true };
   } catch (e) {
     return toActionError(e);
   }

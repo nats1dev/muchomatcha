@@ -25,13 +25,15 @@ export function ProductForm({
         <Input id="name" name="name" required placeholder="Latte matcha" />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="salePrice">Precio sin IVA (GTQ)</Label>
+        <Label htmlFor="clientPrice">
+          Precio de venta a cliente (IVA incluido, GTQ)
+        </Label>
         <Input
-          id="salePrice"
-          name="salePrice"
+          id="clientPrice"
+          name="clientPrice"
           type="number"
           step="0.01"
-          min="0"
+          min="0.01"
           required
         />
       </div>
@@ -45,6 +47,16 @@ export function ProductForm({
             </option>
           ))}
         </Select>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="image">Imagen</Label>
+        <input
+          id="image"
+          name="image"
+          type="file"
+          accept="image/*"
+          className="block w-full text-sm text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:bg-muted file:text-foreground file:cursor-pointer"
+        />
       </div>
       {state && !state.ok ? (
         <p className="text-sm text-error">{state.message}</p>

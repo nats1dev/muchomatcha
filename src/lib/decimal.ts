@@ -5,7 +5,7 @@ Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 export { Decimal };
 
 export function d(value: Decimal.Value = 0): Decimal {
-  return new Decimal(value ?? 0);
+  return new Decimal(value);
 }
 
 export function money(value: Decimal.Value): Decimal {

@@ -46,6 +46,7 @@ enum MovementType {
   ADJUSTMENT_OUT
   COUNT_ADJUSTMENT
   PURCHASE_REVERSAL
+  COST_ADJUSTMENT
 }
 
 enum CountStatus {
@@ -155,6 +156,7 @@ model Product {
   name         String
   salePrice    Decimal  @map("sale_price") @db.Decimal(14, 2)
   taxIncluded  Boolean  @default(false) @map("tax_included")
+  image        String?  @db.VarChar(512)
   active       Boolean  @default(true)
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
@@ -212,6 +214,7 @@ model Ingredient {
   minimumStock        Decimal  @default(0) @map("minimum_stock") @db.Decimal(14, 3)
   currentAverageCost  Decimal  @default(0) @map("current_average_cost") @db.Decimal(14, 4)
   lastPurchaseCost    Decimal? @map("last_purchase_cost") @db.Decimal(14, 4)
+  image               String?  @db.VarChar(512)
   active              Boolean  @default(true)
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz
@@ -389,6 +392,7 @@ model PurchaseItem {
   purchaseUnitId        String    @map("purchase_unit_id") @db.Uuid
   baseQuantity          Decimal   @map("base_quantity") @db.Decimal(14, 3)
   unitCost              Decimal   @map("unit_cost") @db.Decimal(14, 4)
+  unitPrice             Decimal   @default(0) @map("unit_price") @db.Decimal(14, 2)
   lineTotal             Decimal   @map("line_total") @db.Decimal(14, 2)
   expiresAt             DateTime? @map("expires_at") @db.Timestamptz
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz

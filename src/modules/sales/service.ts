@@ -35,9 +35,15 @@ export async function createSale(input: CreateSaleInput) {
   }
 
   return prisma.$transaction(async (tx) => {
-    const business = await tx.business.findUniqueOrThrow({
+    const business = await tx.business.findUnique({
       where: { id: input.businessId },
     });
+    if (!business) {
+      throw new AppError("Negocio no encontrado", {
+        code: "BUSINESS_NOT_FOUND",
+        status: 404,
+      });
+    }
 
     const productIds = input.items.map((i) => i.productId);
     const products = await tx.product.findMany({

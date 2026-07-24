@@ -66,6 +66,7 @@ SELECT
   pi.purchase_quantity,
   pi.base_quantity,
   pi.unit_cost,
+  pi.unit_price,
   pi.line_total,
   pu.total AS purchase_total
 FROM purchases pu
