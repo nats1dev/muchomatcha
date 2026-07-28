@@ -68,7 +68,7 @@ export default async function VentasPage({
                           href={`/ventas/${s.id}`}
                           className="font-medium hover:underline"
                         >
-                          {s.saleNumber}
+                          {s.status === "DRAFT" ? `D-${s.saleNumber}` : s.saleNumber}
                         </Link>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
@@ -77,10 +77,14 @@ export default async function VentasPage({
                       <td className="px-4 py-3">
                         <Badge
                           variant={
-                            s.status === "VOIDED" ? "error" : "success"
+                            s.status === "DRAFT"
+                              ? "warning"
+                              : s.status === "VOIDED"
+                                ? "error"
+                                : "success"
                           }
                         >
-                          {s.status === "VOIDED" ? "Anulada" : "Confirmada"}
+                          {s.status === "DRAFT" ? "Borrador" : s.status === "VOIDED" ? "Anulada" : "Confirmada"}
                         </Badge>
                       </td>
                       <td className="px-4 py-3">{s.paymentMethod}</td>

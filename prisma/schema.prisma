@@ -15,6 +15,7 @@ enum Role {
 }
 
 enum SaleStatus {
+  DRAFT
   CONFIRMED
   VOIDED
 }
@@ -23,6 +24,7 @@ enum PaymentMethod {
   CASH
   CARD
   TRANSFER
+  NONE
 }
 
 enum PaymentStatus {
@@ -47,6 +49,8 @@ enum MovementType {
   COUNT_ADJUSTMENT
   PURCHASE_REVERSAL
   COST_ADJUSTMENT
+  PRODUCTION_IN
+  PRODUCTION_OUT
 }
 
 enum CountStatus {
@@ -76,6 +80,13 @@ enum ExpenseCategory {
   OTHER
 }
 
+enum ProductionStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
 model Business {
   id        String   @id @default(uuid()) @db.Uuid
   name      String
@@ -101,6 +112,7 @@ model Business {
   cashSessions         CashSession[]
   auditLogs            AuditLog[]
   recipes              Recipe[]
+  productionOrders     ProductionOrder[]
 
   @@map("businesses")
 }
@@ -127,6 +139,9 @@ model User {
   closedCashSessions    CashSession[]       @relation("CashClosedBy")
   cashMovements         CashMovement[]
   auditLogs             AuditLog[]
+  productionOrders      ProductionOrder[]
+  completedProductionOrders ProductionOrder[] @relation("ProductionCompletedBy")
+  startedProductionOrders   ProductionOrder[] @relation("ProductionStartedBy")
 
   @@unique([businessId, email])
   @@index([email])
@@ -211,6 +226,7 @@ model Ingredient {
   sku                 String
   name                String
   baseUnitId          String   @map("base_unit_id") @db.Uuid
+  recipeId            String?  @map("recipe_id") @db.Uuid
   minimumStock        Decimal  @default(0) @map("minimum_stock") @db.Decimal(14, 3)
   currentAverageCost  Decimal  @default(0) @map("current_average_cost") @db.Decimal(14, 4)
   lastPurchaseCost    Decimal? @map("last_purchase_cost") @db.Decimal(14, 4)
@@ -222,14 +238,17 @@ model Ingredient {
   business                Business                 @relation(fields: [businessId], references: [id])
   category                IngredientCategory?      @relation(fields: [categoryId], references: [id])
   baseUnit                Unit                     @relation("IngredientBaseUnit", fields: [baseUnitId], references: [id])
+  recipe                  Recipe?                  @relation("IngredientRecipe", fields: [recipeId], references: [id])
   purchaseUnits           IngredientPurchaseUnit[]
   recipeItems             RecipeItem[]
   purchaseItems           PurchaseItem[]
   inventoryMovements      InventoryMovement[]
   inventoryCountItems     InventoryCountItem[]
+  productionOrders        ProductionOrder[]
 
   @@unique([businessId, sku])
   @@index([businessId, active])
+  @@index([recipeId])
   @@map("ingredients")
 }
 
@@ -253,7 +272,7 @@ model IngredientPurchaseUnit {
 model Recipe {
   id            String   @id @default(uuid()) @db.Uuid
   businessId    String   @map("business_id") @db.Uuid
-  productId     String   @map("product_id") @db.Uuid
+  productId     String?  @map("product_id") @db.Uuid
   version       Int      @default(1)
   yieldQuantity Decimal  @default(1) @map("yield_quantity") @db.Decimal(14, 3)
   active        Boolean  @default(true)
@@ -261,22 +280,25 @@ model Recipe {
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  business Business     @relation(fields: [businessId], references: [id])
-  product  Product      @relation(fields: [productId], references: [id])
-  items    RecipeItem[]
+  business    Business     @relation(fields: [businessId], references: [id])
+  product     Product?     @relation(fields: [productId], references: [id])
+  items       RecipeItem[]
+  producedIngredients Ingredient[] @relation("IngredientRecipe")
+  productionOrders    ProductionOrder[]
 
   @@index([businessId, productId])
   @@map("recipes")
 }
 
 model RecipeItem {
-  id               String  @id @default(uuid()) @db.Uuid
-  recipeId         String  @map("recipe_id") @db.Uuid
-  ingredientId     String  @map("ingredient_id") @db.Uuid
-  quantity         Decimal @db.Decimal(14, 3)
-  wastePercentage  Decimal @default(0) @map("waste_percentage") @db.Decimal(5, 2)
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  id                 String  @id @default(uuid()) @db.Uuid
+  recipeId           String  @map("recipe_id") @db.Uuid
+  ingredientId       String  @map("ingredient_id") @db.Uuid
+  quantity           Decimal @db.Decimal(14, 3)
+  wastePercentage    Decimal @default(0) @map("waste_percentage") @db.Decimal(5, 2)
+  isNonInventoriable Boolean @default(false) @map("is_non_inventoriable")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   recipe     Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
   ingredient Ingredient @relation(fields: [ingredientId], references: [id])
@@ -302,6 +324,45 @@ model Supplier {
 
   @@unique([businessId, name])
   @@map("suppliers")
+}
+
+model ProductionOrder {
+  id                String           @id @default(uuid()) @db.Uuid
+  businessId        String           @map("business_id") @db.Uuid
+  orderNumber       Int              @map("order_number")
+  ingredientId      String           @map("ingredient_id") @db.Uuid
+  recipeId          String           @map("recipe_id") @db.Uuid
+  quantity          Decimal          @db.Decimal(14, 3)
+  actualQuantity    Decimal?         @map("actual_quantity") @db.Decimal(14, 3)
+  unitCost          Decimal          @default(0) @map("unit_cost") @db.Decimal(14, 4)
+  totalCost         Decimal          @default(0) @map("total_cost") @db.Decimal(14, 2)
+  estimatedUnitCost Decimal?         @map("estimated_unit_cost") @db.Decimal(14, 4)
+  estimatedTotalCost Decimal?        @map("estimated_total_cost") @db.Decimal(14, 2)
+  status            ProductionStatus @default(DRAFT)
+  notes             String?
+  occurredAt        DateTime         @default(now()) @map("occurred_at") @db.Timestamptz
+  startedAt         DateTime?        @map("started_at") @db.Timestamptz
+  completedAt       DateTime?        @map("completed_at") @db.Timestamptz
+  cancelledAt       DateTime?        @map("cancelled_at") @db.Timestamptz
+  cancelReason      String?          @map("cancel_reason")
+  userId            String           @map("user_id") @db.Uuid
+  startedById       String?          @map("started_by") @db.Uuid
+  completedById     String?          @map("completed_by") @db.Uuid
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  business    Business    @relation(fields: [businessId], references: [id])
+  ingredient  Ingredient  @relation(fields: [ingredientId], references: [id])
+  recipe      Recipe      @relation(fields: [recipeId], references: [id])
+  user        User        @relation(fields: [userId], references: [id])
+  startedBy   User?       @relation("ProductionStartedBy", fields: [startedById], references: [id])
+  completedBy User?       @relation("ProductionCompletedBy", fields: [completedById], references: [id])
+
+  @@unique([businessId, orderNumber])
+  @@index([businessId, occurredAt])
+  @@index([businessId, status])
+  @@index([ingredientId])
+  @@map("production_orders")
 }
 
 model Sale {

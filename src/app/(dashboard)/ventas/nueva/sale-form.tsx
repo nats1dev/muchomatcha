@@ -4,7 +4,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Minus, Plus, Trash2 } from "lucide-react";
-import { createSaleAction } from "@/app/actions/operations";
+import { createSaleAction, createDraftSaleAction } from "@/app/actions/operations";
 
 type PaymentMethod = "CASH" | "CARD" | "TRANSFER";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ type Product = {
   salePrice: number;
   category: string;
   hasRecipe: boolean;
+  unitCost: number | null;
 };
 
 type Line = {
@@ -29,6 +30,7 @@ type Line = {
   unitPrice: number;
   quantity: number;
   hasRecipe: boolean;
+  unitCost: number | null;
 };
 
 export function SaleForm({
@@ -92,6 +94,7 @@ export function SaleForm({
           unitPrice: p.salePrice,
           quantity: 1,
           hasRecipe: p.hasRecipe,
+          unitCost: p.unitCost,
         },
       ];
     });
@@ -134,6 +137,29 @@ export function SaleForm({
       }
       toast.success(`Venta #${res.data.saleNumber} registrada`);
       router.push(`/ventas/${res.data.saleId}`);
+      router.refresh();
+    });
+  }
+
+  function handleDraft() {
+    if (!lines.length) {
+      toast.error("Agrega al menos un producto");
+      return;
+    }
+    startTransition(async () => {
+      const res = await createDraftSaleAction({
+        notes,
+        items: lines.map((l) => ({
+          productId: l.productId,
+          quantity: l.quantity,
+        })),
+      });
+      if (!res.ok) {
+        toast.error(res.message);
+        return;
+      }
+      toast.success(`Borrador D-${res.data.saleNumber} guardado`);
+      router.push("/ventas");
       router.refresh();
     });
   }
@@ -204,7 +230,11 @@ export function SaleForm({
                     <p className="truncate text-sm font-medium">{l.name}</p>
                     <p className="text-xs text-muted-foreground tabular-nums">
                       {formatMoney(l.unitPrice)}
-                      {!l.hasRecipe ? " · sin receta" : ""}
+                      {l.unitCost && l.unitCost > 0
+                        ? ` · ${((l.unitPrice - l.unitCost) / l.unitPrice * 100).toFixed(0)}% margen`
+                        : l.hasRecipe
+                          ? ""
+                          : " · sin receta"}
                     </p>
                   </div>
                   <div className="flex items-center gap-1">
@@ -289,13 +319,23 @@ export function SaleForm({
             />
           </div>
 
-          <Button
-            className="w-full"
-            onClick={submit}
-            disabled={pending || !lines.length}
-          >
-            {pending ? "Guardando..." : "Confirmar venta"}
-          </Button>
+          <div className="space-y-2">
+            <Button
+              className="w-full"
+              onClick={submit}
+              disabled={pending || !lines.length}
+            >
+              {pending ? "Guardando..." : "Confirmar venta"}
+            </Button>
+            <Button
+              className="w-full"
+              variant="secondary"
+              onClick={handleDraft}
+              disabled={pending || !lines.length}
+            >
+              {pending ? "Guardando..." : "Guardar borrador"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>

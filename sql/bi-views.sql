@@ -173,3 +173,53 @@ SELECT
 FROM sales_m sm
 FULL OUTER JOIN exp_m em
   ON sm.business_id = em.business_id AND sm.month = em.month;
+
+CREATE OR REPLACE VIEW bi_production_variance AS
+SELECT
+  po.id AS order_id,
+  po.order_number,
+  b.name AS business_name,
+  i.name AS ingredient_name,
+  i.sku AS ingredient_sku,
+  u.code AS base_unit,
+  po.quantity AS planned_quantity,
+  COALESCE(po.actual_quantity, po.quantity) AS actual_quantity,
+  ROUND(
+    ((COALESCE(po.actual_quantity, po.quantity) - po.quantity)
+      / NULLIF(po.quantity, 0)) * 100, 2
+  ) AS yield_variance_pct,
+  po.estimated_unit_cost,
+  po.unit_cost AS actual_unit_cost,
+  CASE
+    WHEN po.estimated_unit_cost IS NOT NULL
+     AND po.estimated_unit_cost > 0
+    THEN ROUND(
+      ((po.unit_cost - po.estimated_unit_cost)
+        / po.estimated_unit_cost) * 100, 2
+    )
+  END AS cost_variance_pct,
+  po.estimated_total_cost,
+  po.total_cost AS actual_total_cost,
+  po.total_cost - COALESCE(po.estimated_total_cost, 0) AS cost_variance_abs,
+  CASE
+    WHEN po.quantity > COALESCE(po.actual_quantity, po.quantity)
+    THEN (po.quantity - COALESCE(po.actual_quantity, po.quantity))
+         * po.unit_cost
+    ELSE 0
+  END AS waste_cost,
+  po.status,
+  po.occurred_at,
+  po.started_at,
+  po.completed_at,
+  CASE
+    WHEN po.completed_at IS NOT NULL
+     AND po.started_at IS NOT NULL
+    THEN ROUND(
+      EXTRACT(EPOCH FROM (po.completed_at - po.started_at)) / 3600, 2
+    )
+  END AS cycle_time_hours,
+  po.created_at
+FROM production_orders po
+JOIN businesses b    ON b.id = po.business_id
+JOIN ingredients i   ON i.id = po.ingredient_id
+LEFT JOIN units u    ON u.id = i.base_unit_id;

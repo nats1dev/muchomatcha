@@ -14,6 +14,7 @@
   --success: #3a8f63;
   --warning: #c68b2c;
   --error: #b94a48;
+  --info: #2f7ed8;
   --ivory: #f7f7f0;
   --radius: 12px;
   --radius-sm: 10px;
@@ -33,6 +34,7 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-error: var(--error);
+  --color-info: var(--info);
   --color-ivory: var(--ivory);
   --font-sans: var(--font-geist-sans);
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;

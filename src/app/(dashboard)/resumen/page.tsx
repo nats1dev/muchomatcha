@@ -205,6 +205,87 @@ export default async function ResumenPage({
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <Card>
           <CardContent className="p-5">
+            <p className="text-sm text-muted-foreground">Producción del período</p>
+            <p className="mt-2 text-2xl font-semibold tabular-nums">
+              {data.kpis.productionOutput > 0
+                ? `${data.kpis.productionOutput.toLocaleString()}`
+                : "—"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {data.kpis.productionOrderCount} {data.kpis.productionOrderCount === 1 ? "orden" : "órdenes"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-5">
+            <p className="text-sm text-muted-foreground">Rendimiento promedio</p>
+            <p className={`mt-2 text-2xl font-semibold tabular-nums ${data.kpis.avgYieldVariance < 0 ? "text-error" : data.kpis.avgYieldVariance > 0 ? "text-success" : ""}`}>
+              {data.kpis.avgYieldVariance !== 0
+                ? `${data.kpis.avgYieldVariance > 0 ? "+" : ""}${data.kpis.avgYieldVariance.toFixed(1)}%`
+                : "—"}
+            </p>
+            <p className="text-xs text-muted-foreground">vs. planificado</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-5">
+            <p className="text-sm text-muted-foreground">Costo de merma real</p>
+            <p className={`mt-2 text-2xl font-semibold tabular-nums ${data.kpis.productionWaste > 0 ? "text-error" : ""}`}>
+              {formatMoney(data.kpis.productionWaste)}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {data.kpis.avgCycleHours > 0
+                ? `Ciclo promedio: ${data.kpis.avgCycleHours.toFixed(1)}h`
+                : ""}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {data.recipesWithIssues.length > 0 ? (
+        <Card className="mt-4">
+          <CardHeader>
+            <CardTitle className="text-base">Recetas con desviación de rendimiento</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-3">
+              Estas recetas producen consistentemente menos de lo planificado.
+              Considera ajustar su rendimiento.
+            </p>
+            <div className="space-y-2">
+              {data.recipesWithIssues.map((r) => (
+                <div
+                  key={r.recipeId}
+                  className="flex items-center justify-between rounded-[10px] border border-border px-3 py-2"
+                >
+                  <div>
+                    <p className="text-sm font-medium">
+                      {r.productName ?? r.ingredientName}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Rinde{" "}
+                      <span className="text-error font-medium">
+                        {r.avgYieldVariance}%
+                      </span>{" "}
+                      menos del plan en {r.orderCount} órdenes
+                    </p>
+                  </div>
+                  <Link
+                    href={`/recetas?editar=${r.recipeId}`}
+                    className="text-xs font-medium text-primary hover:underline"
+                  >
+                    Revisar receta
+                  </Link>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        <Card>
+          <CardContent className="p-5">
             <p className="text-sm text-muted-foreground">Compras del período</p>
             <p className="mt-2 text-2xl font-semibold tabular-nums">
               {formatMoney(data.kpis.purchasesTotal)}

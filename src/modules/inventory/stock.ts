@@ -43,6 +43,10 @@ export async function listCurrentInventory(businessId: string) {
     include: {
       baseUnit: true,
       category: true,
+      recipe: {
+        where: { active: true },
+        select: { id: true, version: true, yieldQuantity: true },
+      },
       purchaseUnits: {
         where: { active: true },
         include: { unit: true },
@@ -72,6 +76,8 @@ export async function listCurrentInventory(businessId: string) {
       averageCost: avg.toFixed(4),
       value: value.toFixed(2),
       belowMin,
+      isManufactured: ing.recipeId !== null,
+      recipeId: ing.recipeId,
       purchaseUnits: ing.purchaseUnits.map((pu) => ({
         unitCode: pu.unit.code,
         conversionFactor: Number(pu.conversionFactor),

@@ -185,5 +185,67 @@ export async function GET(
     return csvResponse("cash.csv", csv);
   }
 
+  if (name === "production") {
+    const rows = await prisma.productionOrder.findMany({
+      where: { businessId },
+      include: {
+        ingredient: { select: { name: true, sku: true, baseUnit: { select: { code: true } } } },
+      },
+      orderBy: { occurredAt: "desc" },
+      take: 5000,
+    });
+    const csv = toCsv(
+      [
+        "order_number",
+        "ingredient",
+        "sku",
+        "unit",
+        "planned_quantity",
+        "actual_quantity",
+        "yield_variance_pct",
+        "estimated_unit_cost",
+        "actual_unit_cost",
+        "cost_variance_pct",
+        "waste_cost",
+        "status",
+        "occurred_at",
+        "started_at",
+        "completed_at",
+        "cycle_time_hours",
+      ],
+      rows.map((po) => {
+        const actual = Number(po.actualQuantity ?? po.quantity);
+        const planned = Number(po.quantity);
+        const yieldVar = planned > 0 ? ((actual - planned) / planned) * 100 : 0;
+        const unitCost = Number(po.unitCost);
+        const wasteCost = planned > actual ? (planned - actual) * unitCost : 0;
+        const estUnit = Number(po.estimatedUnitCost ?? 0);
+        const costVar = estUnit > 0 ? ((unitCost - estUnit) / estUnit) * 100 : null;
+        const cycleHrs = po.completedAt && po.startedAt
+          ? (new Date(po.completedAt).getTime() - new Date(po.startedAt).getTime()) / 3600000
+          : null;
+        return [
+          po.orderNumber,
+          po.ingredient.name,
+          po.ingredient.sku,
+          po.ingredient.baseUnit.code,
+          planned,
+          actual,
+          yieldVar.toFixed(2),
+          Number(po.estimatedUnitCost ?? 0).toFixed(4),
+          unitCost.toFixed(4),
+          costVar != null ? costVar.toFixed(2) : "",
+          wasteCost.toFixed(2),
+          po.status,
+          po.occurredAt.toISOString(),
+          po.startedAt?.toISOString() ?? "",
+          po.completedAt?.toISOString() ?? "",
+          cycleHrs != null ? cycleHrs.toFixed(2) : "",
+        ];
+      }),
+    );
+    return csvResponse("produccion.csv", csv);
+  }
+
   return new Response("Reporte no encontrado", { status: 404 });
 }

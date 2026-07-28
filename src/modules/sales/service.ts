@@ -56,7 +56,40 @@ export async function createSale(input: CreateSaleInput) {
         recipes: {
           where: { active: true },
           include: {
-            items: { include: { ingredient: true } },
+            items: {
+              include: {
+                ingredient: {
+                  include: {
+                    recipe: {
+                      where: { active: true },
+                      select: {
+                        yieldQuantity: true,
+                        items: {
+                          include: {
+                            ingredient: {
+                              select: {
+                                currentAverageCost: true,
+                                recipe: {
+                                  where: { active: true },
+                                  select: {
+                                    yieldQuantity: true,
+                                    items: {
+                                      include: {
+                                        ingredient: { select: { currentAverageCost: true } },
+                                      },
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
           take: 1,
         },
@@ -133,15 +166,43 @@ export async function createSale(input: CreateSaleInput) {
       let unitCost = d(0);
       if (recipe) {
         unitCost = calculateRecipeUnitCost(
-          recipe.items.map((ri) => ({
-            quantity: ri.quantity.toString(),
-            wastePercentage: ri.wastePercentage.toString(),
-            averageCost: ri.ingredient.currentAverageCost.toString(),
-          })),
+          recipe.items.map((ri) => {
+            const ingRecipe = ri.ingredient.recipe;
+            return {
+              quantity: ri.quantity.toString(),
+              wastePercentage: ri.wastePercentage.toString(),
+              averageCost: ri.ingredient.currentAverageCost.toString(),
+              subRecipe: ingRecipe
+                ? {
+                    yieldQuantity: Number(ingRecipe.yieldQuantity),
+                    items: ingRecipe.items.map((sri) => {
+                      const srRecipe = sri.ingredient?.recipe;
+                      return {
+                        quantity: sri.quantity.toString(),
+                        wastePercentage: sri.wastePercentage.toString(),
+                        averageCost: sri.ingredient?.currentAverageCost?.toString() ?? "0",
+                        subRecipe: srRecipe
+                          ? {
+                              yieldQuantity: Number(srRecipe.yieldQuantity),
+                              items: srRecipe.items.map((dr) => ({
+                                quantity: dr.quantity.toString(),
+                                wastePercentage: dr.wastePercentage.toString(),
+                                averageCost: dr.ingredient.currentAverageCost.toString(),
+                              })),
+                            }
+                          : undefined,
+                      };
+                    }),
+                  }
+                : undefined,
+            };
+          }),
           recipe.yieldQuantity.toString(),
         );
 
         for (const ri of recipe.items) {
+          if (ri.isNonInventoriable) continue;
+
           const delta = effectiveRecipeQty({
             quantity: ri.quantity,
             wastePercentage: ri.wastePercentage,
@@ -326,5 +387,269 @@ export async function listSales(
     },
     orderBy: { soldAt: "desc" },
     take: opts?.take ?? 100,
+  });
+}
+
+export async function createDraftSale(input: {
+  businessId: string;
+  userId: string;
+  notes?: string;
+  items: Array<{ productId: string; quantity: number }>;
+}) {
+  if (!input.items.length) {
+    throw new AppError("Agrega al menos un producto", { code: "EMPTY_SALE" });
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const productIds = input.items.map((i) => i.productId);
+    const products = await tx.product.findMany({
+      where: {
+        businessId: input.businessId,
+        id: { in: productIds },
+        active: true,
+      },
+      select: { id: true, salePrice: true, name: true },
+    });
+
+    if (products.length !== new Set(productIds).size) {
+      throw new AppError("Uno o más productos no están disponibles", {
+        code: "PRODUCT_NOT_FOUND",
+      });
+    }
+
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
+    const last = await tx.sale.findFirst({
+      where: { businessId: input.businessId },
+      orderBy: { saleNumber: "desc" },
+      select: { saleNumber: true },
+    });
+    const saleNumber = (last?.saleNumber ?? 0) + 1;
+
+    const lineInputs = input.items.map((item) => {
+      const product = productMap.get(item.productId)!;
+      return {
+        productId: item.productId,
+        quantity: item.quantity,
+        unitPrice: Number(product.salePrice),
+      };
+    });
+
+    const subtotal = lineInputs.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
+
+    const sale = await tx.sale.create({
+      data: {
+        businessId: input.businessId,
+        saleNumber,
+        status: SaleStatus.DRAFT,
+        paymentMethod: PaymentMethod.NONE,
+        subtotal: toFixedMoney(subtotal),
+        discountTotal: "0.00",
+        taxTotal: "0.00",
+        total: toFixedMoney(subtotal),
+        notes: input.notes,
+        userId: input.userId,
+        items: {
+          create: lineInputs.map((l) => ({
+            productId: l.productId,
+            quantity: toFixedQty(l.quantity),
+            unitPrice: toFixedMoney(l.unitPrice),
+            discount: "0",
+            tax: "0",
+            lineTotal: toFixedMoney(l.unitPrice * l.quantity),
+            unitCostSnapshot: "0",
+          })),
+        },
+      },
+      include: {
+        items: { include: { product: true } },
+      },
+    });
+
+    return sale;
+  });
+}
+
+export async function confirmDraftSale(input: {
+  businessId: string;
+  userId: string;
+  saleId: string;
+  paymentMethod: "CASH" | "CARD" | "TRANSFER";
+}) {
+  return prisma.$transaction(async (tx) => {
+    const sale = await tx.sale.findFirst({
+      where: { id: input.saleId, businessId: input.businessId },
+      include: {
+        items: { include: { product: true } },
+        cashSession: true,
+      },
+    });
+
+    if (!sale) {
+      throw new AppError("Venta no encontrada", { code: "SALE_NOT_FOUND", status: 404 });
+    }
+    if (sale.status !== SaleStatus.DRAFT) {
+      throw new AppError("Solo se pueden confirmar borradores", { code: "NOT_DRAFT" });
+    }
+
+    if (input.paymentMethod === "CASH") {
+      const openSession = await tx.cashSession.findFirst({
+        where: { businessId: input.businessId, status: "OPEN" },
+      });
+      if (!openSession) {
+        throw new AppError("No hay caja abierta para pago en efectivo", { code: "CASH_CLOSED" });
+      }
+    }
+
+    const products = await tx.product.findMany({
+      where: {
+        businessId: input.businessId,
+        id: { in: sale.items.map((i) => i.productId) },
+        active: true,
+      },
+      include: {
+        recipes: {
+          where: { active: true },
+          include: {
+            items: {
+              include: {
+                ingredient: {
+                  include: {
+                    recipe: {
+                      where: { active: true },
+                      select: {
+                        yieldQuantity: true,
+                        items: {
+                          include: {
+                            ingredient: {
+                              select: {
+                                currentAverageCost: true,
+                                recipe: {
+                                  where: { active: true },
+                                  select: {
+                                    yieldQuantity: true,
+                                    items: { include: { ingredient: { select: { currentAverageCost: true } } } },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          take: 1,
+        },
+      },
+    });
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
+    const warnings: string[] = [];
+
+    for (const item of sale.items) {
+      const product = productMap.get(item.productId);
+      if (!product) continue;
+
+      const recipe = product.recipes[0];
+      if (recipe) {
+        const unitCost = calculateRecipeUnitCost(
+          recipe.items.map((ri) => {
+            const ingRecipe = ri.ingredient.recipe;
+            return {
+              quantity: ri.quantity.toString(),
+              wastePercentage: ri.wastePercentage.toString(),
+              averageCost: ri.ingredient.currentAverageCost.toString(),
+              subRecipe: ingRecipe
+                ? {
+                    yieldQuantity: Number(ingRecipe.yieldQuantity),
+                    items: ingRecipe.items.map((sri) => {
+                      const srRecipe = sri.ingredient?.recipe;
+                      return {
+                        quantity: sri.quantity.toString(),
+                        wastePercentage: sri.wastePercentage.toString(),
+                        averageCost: sri.ingredient?.currentAverageCost?.toString() ?? "0",
+                        subRecipe: srRecipe
+                          ? { yieldQuantity: Number(srRecipe.yieldQuantity), items: srRecipe.items.map((dr) => ({ quantity: dr.quantity.toString(), wastePercentage: dr.wastePercentage.toString(), averageCost: dr.ingredient.currentAverageCost.toString() })) }
+                          : undefined,
+                      };
+                    }),
+                  }
+                : undefined,
+            };
+          }),
+          recipe.yieldQuantity.toString(),
+        );
+
+        await tx.saleItem.update({
+          where: { id: item.id },
+          data: { unitCostSnapshot: toFixedCost(unitCost) },
+        });
+
+        for (const ri of recipe.items) {
+          if (ri.isNonInventoriable) continue;
+          const delta = effectiveRecipeQty({
+            quantity: ri.quantity,
+            wastePercentage: ri.wastePercentage,
+            yieldQuantity: recipe.yieldQuantity,
+          }).mul(d(item.quantity));
+
+          await tx.inventoryMovement.create({
+            data: {
+              businessId: input.businessId,
+              ingredientId: ri.ingredientId,
+              movementType: MovementType.SALE,
+              quantityDelta: toFixedQty(delta.neg()),
+              unitCost: toFixedCost(ri.ingredient.currentAverageCost),
+              referenceType: "sale_item",
+              referenceId: sale.id,
+              reason: `Venta #${sale.saleNumber} — ${product.name}`,
+              userId: input.userId,
+            },
+          });
+        }
+      } else {
+        warnings.push(`${product.name} no tiene receta activa`);
+      }
+    }
+
+    const lineInputs = sale.items.map((item) => {
+      const product = productMap.get(item.productId);
+      return {
+        productId: item.productId,
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+        discount: 0,
+      };
+    });
+
+    const business = await tx.business.findUniqueOrThrow({
+      where: { id: input.businessId },
+    });
+
+    const totals = calculateSaleTotals(lineInputs, business.taxRate, 0);
+
+    const updated = await tx.sale.update({
+      where: { id: sale.id },
+      data: {
+        status: SaleStatus.CONFIRMED,
+        paymentMethod: input.paymentMethod,
+        subtotal: toFixedMoney(totals.subtotal),
+        discountTotal: toFixedMoney(totals.discountTotal),
+        taxTotal: toFixedMoney(totals.taxTotal),
+        total: toFixedMoney(totals.total),
+        cashSessionId: input.paymentMethod === "CASH"
+          ? (await tx.cashSession.findFirst({
+              where: { businessId: input.businessId, status: "OPEN" },
+              select: { id: true },
+            }))?.id
+          : null,
+      },
+    });
+
+    return { sale: updated, warnings };
   });
 }

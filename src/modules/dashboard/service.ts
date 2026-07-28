@@ -1,10 +1,11 @@
-import { SaleStatus } from "@prisma/client";
+import { SaleStatus, ProductionStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { d, money } from "@/lib/decimal";
 import { listCurrentInventory } from "@/modules/inventory/stock";
 import { formatInTimeZone } from "date-fns-tz";
 import { DEFAULT_TZ } from "@/lib/dates";
 import { getExpectedForSession } from "@/modules/cash/service";
+import { getRecipesWithYieldIssues } from "@/modules/production/service";
 
 export async function getDashboard(params: {
   businessId: string;
@@ -22,6 +23,8 @@ export async function getDashboard(params: {
     purchases,
     expenses,
     recentClosures,
+    productionOrders,
+    recipesWithIssues,
   ] = await Promise.all([
     prisma.sale.findMany({
       where: {
@@ -92,6 +95,18 @@ export async function getDashboard(params: {
         countedAmount: true,
       },
     }),
+    prisma.productionOrder.findMany({
+      where: {
+        businessId: params.businessId,
+        occurredAt: range,
+        status: ProductionStatus.COMPLETED,
+      },
+      include: {
+        ingredient: { select: { name: true, baseUnit: { select: { code: true } } } },
+      },
+      orderBy: { occurredAt: "desc" },
+    }),
+    getRecipesWithYieldIssues(params.businessId),
   ]);
 
   const expectedCash = openCash
@@ -161,6 +176,38 @@ export async function getDashboard(params: {
   );
   const belowMin = inventory.filter((i) => i.belowMin);
 
+  let productionOutput = d(0);
+  let prodYieldSum = d(0);
+  let prodYieldCount = 0;
+  let productionWaste = d(0);
+  let prodCycleSum = d(0);
+  let prodCycleCount = 0;
+  for (const po of productionOrders) {
+    const actual = d(po.actualQuantity ?? po.quantity);
+    const planned = d(po.quantity);
+    productionOutput = productionOutput.plus(actual);
+    if (planned.gt(0)) {
+      const yieldVar = actual.minus(planned).div(planned);
+      prodYieldSum = prodYieldSum.plus(yieldVar);
+      prodYieldCount++;
+    }
+    if (planned.gt(actual)) {
+      productionWaste = productionWaste.plus(planned.minus(actual).mul(d(po.unitCost)));
+    }
+    if (po.completedAt && po.startedAt) {
+      prodCycleSum = prodCycleSum.plus(
+        d(new Date(po.completedAt).getTime() - new Date(po.startedAt).getTime()).div(3600000),
+      );
+      prodCycleCount++;
+    }
+  }
+  const avgYieldVariance = prodYieldCount > 0
+    ? Number(money(prodYieldSum.div(prodYieldCount).mul(100)).toFixed(2))
+    : 0;
+  const avgCycleHours = prodCycleCount > 0
+    ? Number(prodCycleSum.div(prodCycleCount).toFixed(2))
+    : 0;
+
   const salesByDay = Array.from(byDay.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, v]) => ({
@@ -201,6 +248,11 @@ export async function getDashboard(params: {
       purchasesTotal: Number(money(purchases._sum.total ?? 0).toFixed(2)),
       expensesTotal: Number(money(expenses._sum.total ?? 0).toFixed(2)),
       cashOpen: !!openCash,
+      productionOutput: Number(productionOutput.toFixed(3)),
+      productionOrderCount: productionOrders.length,
+      avgYieldVariance,
+      productionWaste: Number(money(productionWaste).toFixed(2)),
+      avgCycleHours,
     },
     salesByDay,
     salesByCategory,
@@ -221,5 +273,6 @@ export async function getDashboard(params: {
       expected: Number(c.expectedAmount ?? 0),
       counted: Number(c.countedAmount ?? 0),
     })),
+    recipesWithIssues,
   };
 }

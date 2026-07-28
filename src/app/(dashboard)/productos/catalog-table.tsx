@@ -32,6 +32,7 @@ type IngredientRow = {
   baseUnit: { code: string };
   currentAverageCost: number;
   minimumStock: number;
+  recipeId: string | null;
 };
 
 function Thumbnail({ src, alt }: { src: string | null; alt: string }) {
@@ -235,10 +236,11 @@ export function CatalogTable({
                   <th className="w-10 px-4 py-3" />
                   <th className="px-4 py-3 font-medium">SKU</th>
                   <th className="px-4 py-3 font-medium">Nombre</th>
-                  <th className="px-4 py-3 font-medium">Unidad</th>
-                  <th className="px-4 py-3 text-right font-medium">
-                    Costo prom.
-                  </th>
+              <th className="px-4 py-3 font-medium">Unidad</th>
+              <th className="px-4 py-3 font-medium">Tipo</th>
+              <th className="px-4 py-3 text-right font-medium">
+                Costo prom.
+              </th>
                   <th className="px-4 py-3 text-right font-medium">Mín.</th>
                   <th className="w-10 px-4 py-3" />
                 </tr>
@@ -259,6 +261,13 @@ export function CatalogTable({
                     </td>
                     <td className="px-4 py-2.5 font-medium">{i.name}</td>
                     <td className="px-4 py-2.5">{i.baseUnit.code}</td>
+                    <td className="px-4 py-2.5">
+                      {i.recipeId ? (
+                        <Badge variant="success">Subproducto</Badge>
+                      ) : (
+                        <Badge variant="default">Ingrediente</Badge>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5 text-right tabular-nums">
                       {formatCost(i.currentAverageCost)}
                     </td>

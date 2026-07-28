@@ -7,6 +7,7 @@ import { ProductForm } from "./product-form";
 import { CategoryForm } from "./category-form";
 import { IngredientForm } from "./ingredient-form";
 import { CatalogTable } from "./catalog-table";
+import { CsvImportButton } from "@/components/csv-import-button";
 
 export default async function ProductosPage() {
   const session = await auth();
@@ -57,6 +58,7 @@ export default async function ProductosPage() {
       <PageHeader
         title="Productos e ingredientes"
         description="Administra el menú, precios e insumos"
+        actions={<CsvImportButton />}
       />
 
       <div className="grid gap-4 xl:grid-cols-[1fr_340px]">
@@ -82,6 +84,7 @@ export default async function ProductosPage() {
             baseUnit: { code: i.baseUnit.code },
             currentAverageCost: Number(i.currentAverageCost),
             minimumStock: Number(i.minimumStock),
+            recipeId: i.recipeId,
           }))}
           taxRate={Number(business.taxRate)}
         />

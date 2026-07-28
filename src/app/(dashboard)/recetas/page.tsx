@@ -31,7 +31,7 @@ export default async function RecetasPage() {
     notes: r.notes,
     unitCost: r.unitCost,
     margin: r.margin,
-    product: { id: r.product.id, name: r.product.name },
+    product: { id: r.product!.id, name: r.product!.name },
     items: r.items.map((item) => ({
       id: item.id,
       ingredientId: item.ingredientId,

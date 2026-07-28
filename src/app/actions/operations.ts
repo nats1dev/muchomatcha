@@ -15,7 +15,7 @@ import {
   upsertIngredientCategory,
   upsertPurchaseUnit,
 } from "@/modules/catalog/service";
-import { createSale, voidSale } from "@/modules/sales/service";
+import { createSale, voidSale, createDraftSale, confirmDraftSale } from "@/modules/sales/service";
 import { receivePurchase, voidPurchase } from "@/modules/purchases/service";
 import {
   addCashMovement,
@@ -54,6 +54,51 @@ export async function createSaleAction(payload: {
         saleNumber: result.sale.saleNumber,
         warnings: result.warnings,
       },
+    };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function createDraftSaleAction(payload: {
+  notes?: string;
+  items: Array<{ productId: string; quantity: number }>;
+}): Promise<ActionResult<{ saleId: string; saleNumber: number }>> {
+  try {
+    const user = await requireSession();
+    const result = await createDraftSale({
+      businessId: user.businessId,
+      userId: user.id,
+      ...payload,
+    });
+    revalidatePath("/ventas");
+    return {
+      ok: true,
+      data: { saleId: result.id, saleNumber: result.saleNumber },
+    };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function confirmDraftSaleAction(payload: {
+  saleId: string;
+  paymentMethod: "CASH" | "CARD" | "TRANSFER";
+}): Promise<ActionResult<{ warnings: string[] }>> {
+  try {
+    const user = await requireSession();
+    const result = await confirmDraftSale({
+      businessId: user.businessId,
+      userId: user.id,
+      ...payload,
+    });
+    revalidatePath("/ventas");
+    revalidatePath("/resumen");
+    revalidatePath("/inventario");
+    revalidatePath("/caja");
+    return {
+      ok: true,
+      data: { warnings: result.warnings },
     };
   } catch (e) {
     return toActionError(e);
@@ -361,6 +406,7 @@ export async function saveRecipeAction(payload: {
     ingredientId: string;
     quantity: number;
     wastePercentage?: number;
+    isNonInventoriable?: boolean;
   }>;
 }): Promise<ActionResult<{ recipeId: string; unitCost: string }>> {
   try {

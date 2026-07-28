@@ -20,7 +20,8 @@ GRANT SELECT ON
   bi_inventory_movements,
   bi_expenses,
   bi_cash_closures,
-  bi_profit_and_loss_monthly
+  bi_profit_and_loss_monthly,
+  bi_production_variance
 TO bi_readonly;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public

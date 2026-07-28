@@ -13,7 +13,7 @@ import { RecipeForm } from "./recipe-form";
 
 type RecipeRow = {
   id: string;
-  productId: string;
+  productId: string | null;
   version: number;
   yieldQuantity: number;
   notes: string | null;
@@ -46,7 +46,7 @@ export function RecipesView({
   }>;
 }) {
   const [editingRecipeId, setEditingRecipeId] = useState<string | null>(null);
-  const activeRecipeIds = new Set(recipes.map((r) => r.productId));
+  const activeRecipeIds = new Set(recipes.map((r) => r.productId).filter(Boolean) as string[]);
 
   const editingRecipe = editingRecipeId
     ? recipes.find((r) => r.id === editingRecipeId)

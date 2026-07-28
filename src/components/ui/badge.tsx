@@ -5,6 +5,7 @@ const styles = {
   success: "bg-success/10 text-success",
   warning: "bg-warning/10 text-warning",
   error: "bg-error/10 text-error",
+  info: "bg-info/10 text-info",
   dark: "bg-primary text-primary-foreground",
 } as const;
 

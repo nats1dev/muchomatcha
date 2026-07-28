@@ -190,6 +190,7 @@ export async function upsertIngredient(params: {
   name: string;
   baseUnitId: string;
   categoryId?: string | null;
+  recipeId?: string | null;
   minimumStock?: number;
   currentAverageCost?: number;
   image?: string | null;
@@ -206,7 +207,22 @@ export async function upsertIngredient(params: {
   });
   if (!unit) throw new AppError("Unidad base no encontrada");
 
-  const data = {
+  if (params.recipeId !== undefined && params.recipeId !== null) {
+    const recipe = await prisma.recipe.findFirst({
+      where: { id: params.recipeId, businessId: params.businessId },
+    });
+    if (!recipe) throw new AppError("Receta no encontrada");
+    if (recipe.productId !== null) {
+      throw new AppError("La receta seleccionada pertenece a un producto, no a un subproducto");
+    }
+  }
+
+  const data: {
+    sku: string; name: string; baseUnitId: string;
+    categoryId: string | null; image: string | null;
+    minimumStock: string; active: boolean;
+    recipeId?: string | null;
+  } = {
     sku,
     name,
     baseUnitId: params.baseUnitId,
@@ -215,6 +231,10 @@ export async function upsertIngredient(params: {
     minimumStock: toFixedQty(params.minimumStock ?? 0),
     active: params.active ?? true,
   };
+
+  if (params.recipeId !== undefined) {
+    data.recipeId = params.recipeId;
+  }
 
   if (params.id) {
     const existing = await prisma.ingredient.findFirst({
@@ -226,10 +246,13 @@ export async function upsertIngredient(params: {
       d(params.currentAverageCost).toFixed(4) !== d(existing.currentAverageCost).toFixed(4);
 
     if (costChanged) {
-      (data as Record<string, unknown>).currentAverageCost = toFixedCost(params.currentAverageCost!);
+      (data as { currentAverageCost?: string }).currentAverageCost = toFixedCost(params.currentAverageCost!);
     }
 
-    const updated = await prisma.ingredient.update({ where: { id: params.id }, data });
+    const updated = await prisma.ingredient.update({
+      where: { id: params.id },
+      data: data as unknown as Prisma.IngredientUpdateInput,
+    });
 
     if (costChanged) {
       await prisma.inventoryMovement.create({

@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatCost } from "@/lib/utils";
+import { CsvImportButton } from "@/components/csv-import-button";
 
 const steps = [
   { id: 1, label: "Ingredientes" },
@@ -153,6 +154,13 @@ export function SetupWizard({
                 <p className="text-sm text-muted-foreground">
                   Agrega los insumos que compras para tu negocio. Luego definiremos cómo los compras.
                 </p>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">
+                  O importa desde un archivo CSV
+                </p>
+                <CsvImportButton />
               </div>
 
               <div className="flex gap-2">

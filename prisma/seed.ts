@@ -65,6 +65,7 @@ async function main() {
     "cash_sessions",
     "recipe_items",
     "recipes",
+    "production_orders",
     "ingredient_purchase_units",
     "ingredients",
     "ingredient_categories",
@@ -186,6 +187,8 @@ async function main() {
     { sku: "ING-BOLSA", name: "Bolsa papel", unit: "u", cat: "Empaques", min: 50, purchase: { unit: "u", factor: 1 } },
     { sku: "ING-NAPKIN", name: "Servilleta", unit: "u", cat: "Empaques", min: 200, purchase: { unit: "u", factor: 1 } },
     { sku: "ING-GRANOLA", name: "Granola", unit: "g", cat: "Otros", min: 500, purchase: { unit: "kg", factor: 1000 } },
+    { sku: "ING-FRESAS", name: "Fresas", unit: "g", cat: "Otros", min: 1000, purchase: { unit: "kg", factor: 1000 } },
+    { sku: "ING-GAS", name: "Gas propano", unit: "u", cat: "Otros", min: 1, purchase: { unit: "u", factor: 1 } },
   ];
 
   const ingredients: Record<string, { id: string; unit: string }> = {};
@@ -297,6 +300,76 @@ async function main() {
     });
   }
 
+  // Subproducto de ejemplo: Jalea de Fresa
+  console.log("Seeding subproduct...");
+  const jaleaIng = await prisma.ingredient.create({
+    data: {
+      businessId: business.id,
+      categoryId: iCatIds["Otros"],
+      sku: "SUB-JALEA",
+      name: "Jalea de Fresa",
+      baseUnitId: units["g"],
+      minimumStock: toFixedQty(500),
+      currentAverageCost: toFixedCost(0),
+    },
+  });
+  const jaleaRecipe = await prisma.recipe.create({
+    data: {
+      businessId: business.id,
+      productId: null,
+      version: 1,
+      yieldQuantity: toFixedQty(1000),
+      active: true,
+      notes: "Receta base para jalea de fresa artesanal",
+      items: {
+        create: [
+          { ingredientId: ingredients["ING-FRESAS"].id, quantity: toFixedQty(600), wastePercentage: "5.00" },
+          { ingredientId: ingredients["ING-AZUCAR"].id, quantity: toFixedQty(300) },
+          { ingredientId: ingredients["ING-AGUA"].id, quantity: toFixedQty(100) },
+          { ingredientId: ingredients["ING-GAS"].id, quantity: toFixedQty(0.1) },
+        ],
+      },
+    },
+  });
+  await prisma.ingredient.update({
+    where: { id: jaleaIng.id },
+    data: { recipeId: jaleaRecipe.id },
+  });
+  // add jalea to the ingredients map so product recipes can reference it
+  ingredients["SUB-JALEA"] = { id: jaleaIng.id, unit: "g" };
+
+  // Producto demo que usa subproducto: Strawberry Matcha
+  const strawberryProduct = await prisma.product.create({
+    data: {
+      businessId: business.id,
+      categoryId: pCatIds["Matcha"],
+      sku: "BEB-013",
+      name: "Strawberry Matcha",
+      salePrice: toFixedMoney(42),
+      taxIncluded: false,
+    },
+  });
+  await prisma.recipe.create({
+    data: {
+      businessId: business.id,
+      productId: strawberryProduct.id,
+      version: 1,
+      yieldQuantity: "1.000",
+      active: true,
+      items: {
+        create: [
+          { ingredientId: ingredients["ING-MATCHA"].id, quantity: toFixedQty(3), wastePercentage: "5.00" },
+          { ingredientId: ingredients["ING-LECHE"].id, quantity: toFixedQty(250) },
+          { ingredientId: ingredients["ING-HIELO"].id, quantity: toFixedQty(120) },
+          { ingredientId: ingredients["ING-AGUA"].id, quantity: toFixedQty(50) },
+          { ingredientId: jaleaIng.id, quantity: toFixedQty(40) },
+          { ingredientId: ingredients["ING-VASO16"].id, quantity: toFixedQty(1) },
+          { ingredientId: ingredients["ING-PAJILLA"].id, quantity: toFixedQty(1) },
+        ],
+      },
+    },
+  });
+
   // Purchases over time to stock inventory
   console.log("Seeding purchases...");
   const purchaseBatches = [
@@ -327,12 +400,14 @@ async function main() {
       { sku: "ING-HUEVO", qty: 120, total: 180 },
       { sku: "ING-PAN", qty: 80, total: 240 },
       { sku: "ING-AZUCAR", qty: 5, total: 50 },
+      { sku: "ING-FRESAS", qty: 3, total: 90 },
     ]},
     { day: 40, supplier: 2, items: [
       { sku: "ING-MIEL", qty: 3, total: 150 },
       { sku: "ING-JARABE", qty: 4, total: 200 },
       { sku: "ING-CHOCO", qty: 2, total: 160 },
       { sku: "ING-GRANOLA", qty: 3, total: 180 },
+      { sku: "ING-GAS", qty: 2, total: 40 },
     ]},
   ];
 

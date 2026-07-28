@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/ui/page-header";
 import { SaleForm } from "./sale-form";
+import { calculateRecipeUnitCost } from "@/modules/recipes/cost";
 
 export default async function NuevaVentaPage() {
   const session = await auth();
@@ -13,7 +14,19 @@ export default async function NuevaVentaPage() {
       where: { businessId: session.user.businessId, active: true },
       include: {
         category: true,
-        recipes: { where: { active: true }, select: { id: true } },
+        recipes: {
+          where: { active: true },
+          select: {
+            yieldQuantity: true,
+            items: {
+              select: {
+                quantity: true,
+                wastePercentage: true,
+                ingredient: { select: { currentAverageCost: true } },
+              },
+            },
+          },
+        },
       },
       orderBy: { name: "asc" },
     }),
@@ -32,14 +45,28 @@ export default async function NuevaVentaPage() {
         description="Busca productos, ajusta cantidades y confirma el cobro"
       />
       <SaleForm
-        products={products.map((p) => ({
-          id: p.id,
-          name: p.name,
-          sku: p.sku,
-          salePrice: Number(p.salePrice),
-          category: p.category?.name ?? "Sin categoría",
-          hasRecipe: p.recipes.length > 0,
-        }))}
+        products={products.map((p) => {
+          const recipe = p.recipes[0];
+          const unitCost = recipe
+            ? calculateRecipeUnitCost(
+                recipe.items.map((ri) => ({
+                  quantity: ri.quantity.toString(),
+                  wastePercentage: ri.wastePercentage.toString(),
+                  averageCost: ri.ingredient.currentAverageCost.toString(),
+                })),
+                recipe.yieldQuantity.toString(),
+              )
+            : null;
+          return {
+            id: p.id,
+            name: p.name,
+            sku: p.sku,
+            salePrice: Number(p.salePrice),
+            category: p.category?.name ?? "Sin categoría",
+            hasRecipe: recipe != null,
+            unitCost: unitCost ? Number(unitCost) : null,
+          };
+        })}
         taxRate={Number(business.taxRate)}
         cashOpen={!!openCash}
       />

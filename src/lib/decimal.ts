@@ -5,6 +5,9 @@ Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP });
 export { Decimal };
 
 export function d(value: Decimal.Value = 0): Decimal {
+  if (value !== null && typeof value === "object" && !(value instanceof Decimal)) {
+    return new Decimal(String(value));
+  }
   return new Decimal(value);
 }
 
@@ -69,5 +72,6 @@ export function effectiveRecipeQty(params: {
   const yieldQty = d(params.yieldQuantity);
   if (yieldQty.lte(0)) throw new Error("El rendimiento de la receta debe ser mayor a 0");
   const wasteFactor = d(1).plus(d(params.wastePercentage).div(100));
-  return qty(d(params.quantity).mul(wasteFactor).div(yieldQty));
+  const effective = d(params.quantity).mul(wasteFactor).div(yieldQty);
+  return effective;
 }

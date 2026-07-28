@@ -28,6 +28,11 @@ const reports = [
     title: "Cierres de caja",
     description: "Aperturas, cierres y diferencias",
   },
+  {
+    id: "production",
+    title: "Producción",
+    description: "Órdenes con varianza de rendimiento y costo, tiempo de ciclo",
+  },
 ];
 
 export default function ReportesPage() {
