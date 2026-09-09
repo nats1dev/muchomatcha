@@ -3,8 +3,11 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Pooler de Supabase (:6543, pgbouncer) — lo usa la app en runtime.
+  url       = env("DATABASE_URL")
+  // Conexion directa (:5432) — la exige `prisma migrate`, que no funciona a traves del pooler.
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -123,7 +126,9 @@ model User {
   name         String
   email        String
   passwordHash String   @map("password_hash")
-  role         Role     @default(OWNER)
+  // Fail-closed: un usuario creado sin rol explicito recibe el minimo
+  // privilegio. Con @default(OWNER) cualquier alta incompleta nacia propietaria.
+  role         Role     @default(VIEWER)
   active       Boolean  @default(true)
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
@@ -622,4 +627,17 @@ model AuditLog {
   @@index([businessId, occurredAt])
   @@index([entityType, entityId])
   @@map("audit_log")
+}
+
+/// Intentos fallidos de inicio de sesion. Se persisten (y no se guardan en
+/// memoria) porque en serverless cada peticion puede caer en otra instancia.
+model LoginAttempt {
+  id          String   @id @default(uuid()) @db.Uuid
+  email       String
+  ip          String
+  attemptedAt DateTime @default(now()) @map("attempted_at") @db.Timestamptz
+
+  @@index([email, ip, attemptedAt])
+  @@index([attemptedAt])
+  @@map("login_attempts")
 }

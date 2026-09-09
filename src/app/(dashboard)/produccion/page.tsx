@@ -45,7 +45,7 @@ export default async function ProduccionPage({
       />
 
       <SubproductSection
-        subproducts={subproducts as never[]}
+        subproducts={subproducts}
         allIngredients={ingredients.map((i) => ({
           id: i.id,
           name: i.name,
@@ -73,7 +73,7 @@ export default async function ProduccionPage({
           }
         />
       ) : (
-        <ProductionTable orders={orders as never[]} />
+        <ProductionTable orders={orders} />
       )}
     </div>
   );

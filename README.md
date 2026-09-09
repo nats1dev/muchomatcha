@@ -22,21 +22,31 @@ Aplicación web para el control operativo y financiero de una cafetería (MVP).
 cp .env.example .env
 ```
 
-2. Edita `.env` y coloca tu `DATABASE_URL`:
+2. Edita `.env`. Son necesarias **dos** URLs de base de datos:
 
 ```env
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/cafe_control?sslmode=require"
-AUTH_SECRET="genera-un-secreto-largo"
+# Pooler (:6543) — la usa la app en runtime. Obligatorio en Vercel/serverless.
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:6543/postgres?pgbouncer=true&connection_limit=1&sslmode=require"
+# Conexion directa (:5432) — la exige `prisma migrate`, que no pasa por pgbouncer.
+DIRECT_URL="postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require"
+
+AUTH_SECRET="genera uno con: openssl rand -base64 32"
 AUTH_URL="http://localhost:3000"
+
+# Contrasena del propietario que crea el seed. Sin valor por defecto.
+SEED_OWNER_PASSWORD="una-contrasena-fuerte"
 ```
 
-3. Instala, migra y siembra datos demo:
+3. Instala, migra y siembra:
 
 ```bash
 npm install
-npx prisma db push
-npm run db:seed
+npx prisma migrate deploy   # aplica el historial versionado de prisma/migrations
+npm run db:seed             # catalogo base; anade --demo para historial de ejemplo
 ```
+
+> No uses `prisma db push`: el esquema se gestiona con migraciones versionadas.
+> Para cambiarlo, usa `npx prisma migrate dev --name <descripcion>`.
 
 4. Arranca:
 
@@ -46,10 +56,11 @@ npm run dev
 
 Abre [http://localhost:3000](http://localhost:3000)
 
-### Credenciales demo
+### Acceso
 
-- Correo: `owner@muchomatcha.gt`
-- Contraseña: `Matcha2026!`
+El seed crea el usuario propietario `owner@muchomatcha.gt` con la contraseña que
+hayas puesto en `SEED_OWNER_PASSWORD`. El resto de cuentas (cajeros, contador) se
+crean desde la aplicación, en **Configuración → Usuarios**.
 
 ## Scripts
 

@@ -24,6 +24,7 @@ America/Guatemala. Detalle de setup en `../README.md`.
 | ¿Qué decisiones de negocio ya están tomadas? | `DECISIONES.md` | Tu cambio toca impuestos, costos, caja, inventario o recetas |
 | ¿Qué significa cada término (merma, kardex, subproducto…)? | `GLOSARIO.md` | Encuentras vocabulario del dominio |
 | ¿Cuál es el flujo punta a punta? | `JOURNEY.md` | Necesitas contexto operativo (comprar → producir → vender → caja) |
+| ¿Qué falta para poner esto en producción? | `IMPLEMENTACION.md` | Trabajas en el piloto: fases, estado, bitácora |
 | ¿Cómo mantengo estos docs actualizados? | `MANTENIMIENTO.md` | Terminaste un cambio en dominio, schema o API |
 | Especificación original completa | `../MVP.md` | Necesitas el texto fuente de un requisito |
 | Plan de implementación por fases | `../Desarrollo.md` | Necesitas contexto histórico del plan inicial |
@@ -44,7 +45,21 @@ America/Guatemala. Detalle de setup en `../README.md`.
 
 * `npm run typecheck` → 0 errores. `npm run lint` → 0 errores, 3 warnings diferidos
   (`exhaustive-deps` en `purchase-form.tsx`, 2× `<img>` vs `next/image`).
-* Tests unitarios: 6 pasan. Integración (12 casos, flujo Strawberry Matcha):
+* Tests unitarios: 20 pasan (`decimal`, `schemas`). Integración (12 casos, flujo Strawberry Matcha):
   requiere `DATABASE_URL`, se ejecuta con `run-integration-test.bat`.
 * Producción Fase 1 (IN_PROGRESS, cantidad real, costo estimado persistido,
   `startedAt`, vista `bi_production_variance`) ya está implementada en código.
+
+### Puesta en producción — en curso (ver `IMPLEMENTACION.md`)
+
+* **Esquema versionado desde 2026-09-09.** El historial de migraciones se
+  reconstruyó y la base se reseteó. **No usar `prisma db push`.**
+* **Se requieren dos URLs de base**: `DATABASE_URL` (pooler :6543) y
+  `DIRECT_URL` (:5432, para migrar). Ver `../README.md`.
+* **Control de acceso por roles activo** (DEC-13/DEC-14): toda server action
+  exige un rol mínimo. Si escribes una acción nueva, protégela con `requireRole`.
+* El seed ya no trae contraseña por defecto: exige `SEED_OWNER_PASSWORD`.
+* **Toda server action valida con Zod** (DEC-18): si escribes una acción nueva,
+  añade su esquema en `src/app/actions/schemas.ts` y parsea `payload: unknown`.
+* **Límite de intentos de login activo** (DEC-17): 5 fallos por (correo, IP) cada
+  15 min, contados en la tabla `login_attempts`.

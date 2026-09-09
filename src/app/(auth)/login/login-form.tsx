@@ -7,6 +7,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+/**
+ * Solo permite rutas internas como destino tras el login. Sin esto,
+ * `/login?callbackUrl=https://sitio-malicioso.tld` redirige fuera del sitio
+ * justo despues de autenticar, que es el patron clasico de phishing.
+ */
+function safeCallbackUrl(raw: string | null): string {
+  const fallback = "/resumen";
+  if (!raw) return fallback;
+  // "//host" y "/\host" son URLs protocol-relative: salen del dominio.
+  if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
+    return fallback;
+  }
+  return raw;
+}
+
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -25,10 +40,16 @@ export function LoginForm() {
     });
     setLoading(false);
     if (res?.error) {
-      setError("Correo o contraseña incorrectos");
+      // `code` viene del error lanzado en `authorize`. El mensaje de bloqueo no
+      // revela si la cuenta existe: se activa igual con correos inexistentes.
+      setError(
+        res.code === "rate_limited"
+          ? "Demasiados intentos fallidos. Espera 15 minutos e inténtalo de nuevo."
+          : "Correo o contraseña incorrectos",
+      );
       return;
     }
-    router.push(searchParams.get("callbackUrl") || "/resumen");
+    router.push(safeCallbackUrl(searchParams.get("callbackUrl")));
     router.refresh();
   }
 
@@ -42,7 +63,6 @@ export function LoginForm() {
           type="email"
           autoComplete="email"
           required
-          defaultValue="owner@muchomatcha.gt"
         />
       </div>
       <div className="space-y-2">
@@ -53,16 +73,12 @@ export function LoginForm() {
           type="password"
           autoComplete="current-password"
           required
-          defaultValue="Matcha2026!"
         />
       </div>
       {error ? <p className="text-sm text-error">{error}</p> : null}
       <Button type="submit" className="w-full" disabled={loading}>
         {loading ? "Ingresando..." : "Entrar"}
       </Button>
-      <p className="text-xs text-muted-foreground">
-        Demo: owner@muchomatcha.gt / Matcha2026!
-      </p>
     </form>
   );
 }

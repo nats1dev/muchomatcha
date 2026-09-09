@@ -12,6 +12,7 @@ import {
   weightedAverageCost,
   effectiveRecipeQty,
 } from "@/lib/decimal";
+import { serializeDecimals } from "@/lib/serialize";
 import { writeAudit } from "@/modules/audit/service";
 import { getIngredientStock } from "@/modules/inventory/stock";
 
@@ -495,7 +496,7 @@ export async function listProductionOrders(
     skip?: number;
   },
 ) {
-  return prisma.productionOrder.findMany({
+  const orders = await prisma.productionOrder.findMany({
     where: {
       businessId,
       ...(opts?.ingredientId ? { ingredientId: opts.ingredientId } : {}),
@@ -520,6 +521,7 @@ export async function listProductionOrders(
     take: opts?.take ?? 50,
     skip: opts?.skip ?? 0,
   });
+  return serializeDecimals(orders);
 }
 
 export async function getProductionOrderDetail(businessId: string, orderId: string) {
@@ -573,11 +575,11 @@ export async function getProductionOrderDetail(businessId: string, orderId: stri
     orderBy: { occurredAt: "asc" },
   });
 
-  return { order, movements };
+  return serializeDecimals({ order, movements });
 }
 
 export async function listManufacturedIngredients(businessId: string) {
-  return prisma.ingredient.findMany({
+  const ingredients = await prisma.ingredient.findMany({
     where: {
       businessId,
       active: true,
@@ -603,6 +605,7 @@ export async function listManufacturedIngredients(businessId: string) {
     },
     orderBy: { name: "asc" },
   });
+  return serializeDecimals(ingredients);
 }
 
 export async function getSubproductRecipe(businessId: string, ingredientId: string) {

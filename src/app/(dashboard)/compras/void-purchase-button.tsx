@@ -11,8 +11,14 @@ import { Label } from "@/components/ui/label";
 
 export function VoidPurchaseButton({
   purchaseId,
+  canVoid,
 }: {
   purchaseId: string;
+  /**
+   * Solo ADMIN u OWNER anulan. La accion sigue validando el rol en el
+   * servidor; esto solo evita mostrar un boton que terminaria en error.
+   */
+  canVoid: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -31,6 +37,23 @@ export function VoidPurchaseButton({
       setReason("");
       router.refresh();
     });
+  }
+
+  if (!canVoid) {
+    return (
+      <span title="Solo el encargado o el propietario pueden anular una compra">
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7 text-muted-foreground"
+          disabled
+          aria-label="Anular compra (sin permisos)"
+        >
+          <Ban className="h-3.5 w-3.5" />
+        </Button>
+      </span>
+    );
   }
 
   if (!open) {

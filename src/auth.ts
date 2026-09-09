@@ -1,8 +1,23 @@
-import NextAuth from "next-auth";
+import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { verifyPassword } from "@/lib/auth/password";
+import {
+  clearLoginAttempts,
+  clientIpFrom,
+  dummyPasswordHash,
+  isLoginBlocked,
+  recordFailedLogin,
+} from "@/lib/auth/rate-limit";
+
+/**
+ * Codigo propio para distinguir "bloqueado por intentos" de "credenciales
+ * incorrectas" en el formulario, sin revelar si la cuenta existe.
+ */
+class RateLimitedSignin extends CredentialsSignin {
+  code = "rate_limited";
+}
 
 const credentialsSchema = z.object({
   email: z.string().email().trim().toLowerCase(),
@@ -45,23 +60,34 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         email: { label: "Correo", type: "email" },
         password: { label: "Contraseña", type: "password" },
       },
-      async authorize(raw) {
+      async authorize(raw, request) {
         const parsed = credentialsSchema.safeParse(raw);
         if (!parsed.success) return null;
+        const { email, password } = parsed.data;
+
+        const ip = clientIpFrom(request.headers);
+        if (await isLoginBlocked(email, ip)) {
+          throw new RateLimitedSignin();
+        }
 
         const user = await prisma.user.findFirst({
-          where: {
-            email: parsed.data.email,
-            active: true,
-          },
+          where: { email, active: true },
         });
-        if (!user) return null;
 
+        // Se verifica SIEMPRE un hash, aunque el usuario no exista o este
+        // inactivo: argon2id tarda cientos de milisegundos y saltarselo
+        // delataria por diferencia de latencia que correos estan registrados.
         const valid = await verifyPassword(
-          user.passwordHash,
-          parsed.data.password,
+          user?.passwordHash ?? dummyPasswordHash(),
+          password,
         );
-        if (!valid) return null;
+
+        if (!user || !valid) {
+          await recordFailedLogin(email, ip);
+          return null;
+        }
+
+        await clearLoginAttempts(email, ip);
 
         return {
           id: user.id,
@@ -85,7 +111,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;
-        session.user.role = (token.role as string) ?? "OWNER";
+        // Fail-closed: sin rol en el token se asume el minimo privilegio.
+        // Un `?? "OWNER"` aqui convertiria cualquier token incompleto en
+        // una cuenta de propietario.
+        session.user.role = (token.role as string) ?? "VIEWER";
         session.user.businessId = token.businessId as string;
       }
       return session;

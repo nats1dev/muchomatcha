@@ -6,7 +6,17 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-export function VoidSaleForm({ saleId }: { saleId: string }) {
+export function VoidSaleForm({
+  saleId,
+  canVoid,
+}: {
+  saleId: string;
+  /**
+   * Cajero y contador ven el formulario apagado en vez de recibir un 403 al
+   * enviarlo. `voidSaleAction` sigue exigiendo ADMIN en el servidor.
+   */
+  canVoid: boolean;
+}) {
   const [state, action, pending] = useActionState(voidSaleAction, null);
 
   return (
@@ -18,6 +28,7 @@ export function VoidSaleForm({ saleId }: { saleId: string }) {
           id="reason"
           name="reason"
           required
+          disabled={!canVoid}
           placeholder="Describe el motivo de la anulación"
         />
       </div>
@@ -27,7 +38,12 @@ export function VoidSaleForm({ saleId }: { saleId: string }) {
       {state?.ok ? (
         <p className="text-sm text-success">Venta anulada</p>
       ) : null}
-      <Button type="submit" variant="danger" disabled={pending}>
+      {!canVoid ? (
+        <p className="text-sm text-muted-foreground">
+          Solo el encargado o el propietario pueden anular una venta.
+        </p>
+      ) : null}
+      <Button type="submit" variant="danger" disabled={pending || !canVoid}>
         {pending ? "Anulando..." : "Confirmar anulación"}
       </Button>
     </form>

@@ -20,24 +20,35 @@ import {
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ROLE_RANK, type RoleName } from "@/lib/auth/roles";
 
+// `minRole` solo decide que se muestra. El permiso real lo aplica cada Server
+// Action con requireRole: ocultar un enlace no impide invocar la accion.
 const nav = [
-  { href: "/resumen", label: "Resumen", icon: LayoutDashboard },
-  { href: "/ventas", label: "Ventas", icon: ShoppingCart },
-  { href: "/productos", label: "Productos", icon: Coffee },
-  { href: "/recetas", label: "Recetas", icon: BookOpen },
-  { href: "/produccion", label: "Producción", icon: FlaskConical },
-  { href: "/inventario", label: "Inventario", icon: Package },
-  { href: "/compras", label: "Compras", icon: Truck },
-  { href: "/gastos", label: "Gastos", icon: Wallet },
-  { href: "/caja", label: "Caja", icon: Landmark },
-  { href: "/reportes", label: "Reportes", icon: FileBarChart },
-  { href: "/configuracion", label: "Configuración", icon: Settings },
-];
+  { href: "/resumen", label: "Resumen", icon: LayoutDashboard, minRole: "VIEWER" },
+  { href: "/ventas", label: "Ventas", icon: ShoppingCart, minRole: "VIEWER" },
+  { href: "/productos", label: "Productos", icon: Coffee, minRole: "VIEWER" },
+  { href: "/recetas", label: "Recetas", icon: BookOpen, minRole: "VIEWER" },
+  { href: "/produccion", label: "Producción", icon: FlaskConical, minRole: "CASHIER" },
+  { href: "/inventario", label: "Inventario", icon: Package, minRole: "VIEWER" },
+  { href: "/compras", label: "Compras", icon: Truck, minRole: "VIEWER" },
+  { href: "/gastos", label: "Gastos", icon: Wallet, minRole: "VIEWER" },
+  { href: "/caja", label: "Caja", icon: Landmark, minRole: "CASHIER" },
+  { href: "/reportes", label: "Reportes", icon: FileBarChart, minRole: "VIEWER" },
+  { href: "/configuracion", label: "Configuración", icon: Settings, minRole: "ADMIN" },
+] satisfies Array<{
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  minRole: RoleName;
+}>;
 
-export function Sidebar() {
+export function Sidebar({ role }: { role: RoleName }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const visibleNav = nav.filter(
+    (item) => ROLE_RANK[role] >= ROLE_RANK[item.minRole],
+  );
 
   const content = (
     <div className="flex h-full flex-col">
@@ -59,7 +70,7 @@ export function Sidebar() {
         </Button>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-        {nav.map((item) => {
+        {visibleNav.map((item) => {
           const active =
             pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { auth } from "@/auth";
+import { hasAtLeast, isRoleName } from "@/lib/auth/roles";
 import { prisma } from "@/lib/db";
 import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/utils";
@@ -31,6 +32,8 @@ const paymentMethodLabel: Record<string, string> = {
 export default async function ComprasPage() {
   const session = await auth();
   if (!session?.user?.businessId) return null;
+  const role = isRoleName(session.user.role) ? session.user.role : "VIEWER";
+  const canVoid = hasAtLeast(role, "ADMIN");
 
   const purchases = await prisma.purchase.findMany({
     where: { businessId: session.user.businessId },
@@ -117,7 +120,7 @@ export default async function ComprasPage() {
                       </td>
                       <td className="px-4 py-3">
                         {p.status === "RECEIVED" && (
-                          <VoidPurchaseButton purchaseId={p.id} />
+                          <VoidPurchaseButton purchaseId={p.id} canVoid={canVoid} />
                         )}
                       </td>
                     </tr>

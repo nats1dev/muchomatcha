@@ -1,17 +1,23 @@
-import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { csvResponse, toCsv } from "@/lib/csv";
 import { listCurrentInventory } from "@/modules/inventory/stock";
+import { requireRole } from "@/lib/auth/session";
+import { isAppError } from "@/lib/errors";
 
 export async function GET(
   _req: Request,
   ctx: { params: Promise<{ report: string }> },
 ) {
-  const session = await auth();
-  if (!session?.user?.businessId) {
-    return new Response("Unauthorized", { status: 401 });
+  let businessId: string;
+  try {
+    // Exportar revela ventas, costos y arqueos completos: exige al menos
+    // rol de solo lectura, no unicamente tener sesion iniciada.
+    ({ businessId } = await requireRole("VIEWER"));
+  } catch (e) {
+    const status = isAppError(e) ? e.status : 500;
+    const message = isAppError(e) ? e.message : "Error inesperado";
+    return new Response(message, { status });
   }
-  const businessId = session.user.businessId;
   const { report } = await ctx.params;
   const name = report.replace(/\.csv$/i, "");
 

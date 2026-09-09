@@ -15,7 +15,7 @@ export default async function NuevaProduccionPage() {
         title="Nueva Orden de Producción"
         description="Selecciona el subproducto y la cantidad a fabricar"
       />
-      <ProductionForm subproducts={subproducts as never[]} />
+      <ProductionForm subproducts={subproducts} />
     </div>
   );
 }

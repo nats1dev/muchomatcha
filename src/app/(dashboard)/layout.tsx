@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
+import { isRoleName } from "@/lib/auth/roles";
 
 export default async function DashboardLayout({
   children,
@@ -11,10 +12,11 @@ export default async function DashboardLayout({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
+  const role = isRoleName(session.user.role) ? session.user.role : "VIEWER";
 
   return (
     <div className="flex min-h-screen bg-background">
-      <Sidebar />
+      <Sidebar role={role} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Suspense fallback={<div className="h-[73px] border-b border-border bg-card" />}>
           <Topbar userName={session.user.name ?? undefined} />

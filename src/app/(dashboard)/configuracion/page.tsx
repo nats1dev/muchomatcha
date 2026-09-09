@@ -1,10 +1,14 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Users } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/ui/page-header";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SupplierForm } from "./supplier-form";
 import { PurchaseUnitForm } from "./purchase-unit-form";
+import { ChangePasswordForm } from "./change-password-form";
 
 export default async function ConfiguracionPage() {
   const session = await auth();
@@ -36,6 +40,14 @@ export default async function ConfiguracionPage() {
       <PageHeader
         title="Configuración"
         description="Negocio, proveedores, unidades y conversiones"
+        actions={
+          <Button asChild>
+            <Link href="/configuracion/usuarios">
+              <Users className="mr-1 h-4 w-4" />
+              Usuarios
+            </Link>
+          </Button>
+        }
       />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
@@ -137,6 +149,15 @@ export default async function ConfiguracionPage() {
                 name: u.name,
               }))}
             />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Mi contraseña</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ChangePasswordForm />
           </CardContent>
         </Card>
       </div>

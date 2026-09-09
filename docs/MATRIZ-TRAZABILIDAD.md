@@ -7,7 +7,7 @@
 
 | REQ | Implementación (archivo:línea) | Test | Estado |
 |---|---|---|---|
-| REQ-01 | `src/auth.ts`, `src/app/(auth)/login/page.tsx`, `requireSession` (`src/lib/auth/session`) | Manual (login + rutas protegidas) | ✅ |
+| REQ-01 | `src/auth.ts`, `src/app/(auth)/login/page.tsx`; `requireSession` / `requireRole` / `requirePageRole` (`src/lib/auth/session.ts`), jerarquía en `src/lib/auth/roles.ts`; 36 llamadas protegidas en `src/app/actions/*`; alta de usuarios en `src/app/actions/users.ts`; límite de intentos de login en `src/lib/auth/rate-limit.ts` + `authorize` (`src/auth.ts`), tabla `login_attempts` (DEC-17) | Alta de cajero y contador desde Configuración → Usuarios **verificada en runtime (2026-09-09)** (`npm run dev` → owner → Configuración → Usuarios). UI de anulación (venta y compra) apagada para CASHIER/VIEWER vía `canVoid` (DEC-16); verificado con `npm run typecheck` (2026-09-09). Pendiente: comprobar en runtime que el botón aparece apagado con cuenta CASHIER (`npm run dev`). Límite de login verificado con `npm run typecheck` + `npm run lint` (0 errores) y `npx prisma migrate deploy` (migración `20260909210000_login_attempts` aplicada, 2026-09-09); ⚠️ por verificar (2026-09-09) el bloqueo en runtime: `npm run dev` → `/login` → 6 intentos fallidos con el mismo correo | ⚠️ |
 | REQ-02 | `src/modules/catalog/service.ts` (`upsertProduct` :47, `upsertIngredient` :185, `upsertSupplier` :435); páginas `productos`, `inventario`, `configuracion` | Seed (`prisma/seed.ts`) | ✅ |
 | REQ-03 | `src/modules/recipes/cost.ts:calculateRecipeUnitCost` (:13), `saveRecipe` (`recipes/service.ts` :43) | Unit: cálculo vía UI; integración paso 8 | ✅ |
 | REQ-04 | `src/modules/sales/service.ts:createSale` (:32); UI `ventas/nueva/sale-form.tsx` | Integración paso 10 | ✅ |
@@ -19,16 +19,23 @@
 | REQ-10 | `dashboard/service.ts:getDashboard` (:10); UI `resumen/page.tsx` con filtro de fechas | Por verificar: comparar panel vs operaciones | ⚠️ |
 | REQ-11 | `sales/service.ts:voidSale` (:261), `purchases/service.ts:voidPurchase` (:213); anulación lógica | Integración (idempotencia declarada en `Desarrollo.md §7.2`) | ✅ |
 | REQ-12 | `sql/bi-views.sql` (10 vistas, :4–:177); `sql/roles.sql` (rol lectura) | Por verificar: conexión Power BI | ⚠️ |
-| REQ-13 | `src/app/api/exports/[report]/route.ts`; UI `reportes/page.tsx` (5 CSV); `importCsvAction` (`actions/importer.ts`) | Manual (descarga CSV) | ✅ |
+| REQ-13 | `src/app/api/exports/[report]/route.ts` (exige rol `VIEWER` desde 2026-09-09); UI `reportes/page.tsx` (5 CSV); `importCsvAction` (`actions/importer.ts`) | Manual (descarga CSV) | ✅ |
 | REQ-14 | Tokens en `MVP.md §4.2`; layout `src/app/(dashboard)/layout.tsx`; estados vacíos por módulo | Manual (desktop/tableta) | ⚠️ |
 | REQ-15 | `src/modules/audit/service.ts:writeAudit` (:6); tabla `audit_log` | Por verificar: cobertura por operación | ⚠️ |
 | REQ-16 | `sale_items.unit_cost_snapshot` y precio guardados en `createSale`; `purchase_items.unit_cost` en `receivePurchase` | Integración pasos 3, 10 | ✅ |
-| REQ-17 | `prisma/schema.prisma:ProductionStatus` (:83, con IN_PROGRESS); `production/service.ts:startProductionOrder` (:32) | Integración (start → complete) | ✅ |
+| REQ-17 | `prisma/schema.prisma:ProductionStatus` (:83, con IN_PROGRESS); `production/service.ts:startProductionOrder` (:32). UI `produccion/`: lecturas serializadas con `src/lib/serialize.ts:serializeDecimals` (:25) desde 2026-09-09 — antes `/produccion` rompía con `Only plain objects can be passed to Client Components` | Integración (start → complete); `npm run typecheck` + `npm run dev` → abrir `/produccion`, `/produccion/nueva` y el detalle de una orden (2026-09-09) | ✅ |
 | REQ-18 | `schema.prisma:ProductionOrder.actualQuantity` (:336); `completeProductionOrder` (:202, `actualQuantity?` :76) | Integración paso 6 | ✅ |
 | REQ-19 | `estimatedUnitCost` (:339) + `estimatedTotalCost`; `bi_production_variance` (`bi-views.sql` :177) | Integración paso 6 (`estimatedUnitCost > 0`) | ✅ |
 | REQ-20 | `startedAt` (:344), `startedById` (:349) en `ProductionOrder` | Integración (start → complete) | ✅ |
 | REQ-21 | Merma de receta (`wastePercentage`) aplicada en `production/service.ts` (:169, :262); sin captura de merma real por insumo | — | ⚠️ parcial |
-| REQ-22 | Vista `bi_production_variance` (:177, otorgada en `roles.sql` :24) | — (CSV/dashboard producción por verificar) | ⚠️ parcial |
+| REQ-22 | Vista `bi_production_variance` (:177, otorgada en `roles.sql` :24); CSV en `api/exports/[report]/route.ts` (:223, consume el DTO serializado con `Number(...)`) | — (dashboard de producción por verificar). CSV verificado con: `npm run typecheck` (2026-09-09); pendiente descargar el reporte de producción desde `/reportes` | ⚠️ parcial |
+
+**Nota transversal (2026-09-09, DEC-18):** la entrada de todos los REQ que
+escriben datos (REQ-02, REQ-04 a REQ-09, REQ-11, REQ-16 a REQ-22) pasa antes por
+`src/app/actions/schemas.ts`: cantidades > 0, importes ≥ 0, UUID, enums cerrados
+y fechas `aaaa-mm-dd`. Evidencia: `tests/unit/schemas.test.ts` (14 casos,
+`npm test`). ⚠️ por verificar (2026-09-09) el recorrido en runtime de un
+formulario de cada tipo: `npm run dev` → venta, compra, gasto y ajuste.
 
 **Notas:**
 * Las filas ⚠️ no son fallas confirmadas: son puntos donde la evidencia en este

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
+import { hasAtLeast, isRoleName } from "@/lib/auth/roles";
 import { prisma } from "@/lib/db";
 import { formatDateTime } from "@/lib/dates";
 import { formatMoney, formatQty } from "@/lib/utils";
@@ -17,6 +18,8 @@ export default async function VentaDetallePage({
 }) {
   const session = await auth();
   if (!session?.user?.businessId) return null;
+  const role = isRoleName(session.user.role) ? session.user.role : "VIEWER";
+  const canVoid = hasAtLeast(role, "ADMIN");
   const { id } = await params;
 
   const sale = await prisma.sale.findFirst({
@@ -124,7 +127,7 @@ export default async function VentaDetallePage({
                 <CardTitle>Anular venta</CardTitle>
               </CardHeader>
               <CardContent>
-                <VoidSaleForm saleId={sale.id} />
+                <VoidSaleForm saleId={sale.id} canVoid={canVoid} />
               </CardContent>
             </Card>
           ) : null}

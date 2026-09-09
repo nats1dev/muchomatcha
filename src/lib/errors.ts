@@ -1,3 +1,5 @@
+import { ZodError } from "zod";
+
 export class AppError extends Error {
   code: string;
   status: number;
@@ -35,6 +37,22 @@ export function toActionError(error: unknown): {
       message: error.message,
       code: error.code,
       fieldErrors: error.fieldErrors,
+    };
+  }
+  // Validacion de la frontera (`src/app/actions/schemas.ts`): se devuelve el
+  // detalle por campo para que el formulario lo pinte junto a cada input, en
+  // vez de un "error inesperado" que no dice que corregir.
+  if (error instanceof ZodError) {
+    const fieldErrors: Record<string, string[]> = {};
+    for (const issue of error.issues) {
+      const key = issue.path.map(String).join(".") || "_form";
+      (fieldErrors[key] ??= []).push(issue.message);
+    }
+    return {
+      ok: false,
+      message: error.issues[0]?.message ?? "Datos inválidos",
+      code: "VALIDATION_ERROR",
+      fieldErrors,
     };
   }
   console.error(error);

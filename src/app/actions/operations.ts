@@ -1,15 +1,29 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import {
-  CashMovementType,
-  ExpenseCategory,
-  PaymentMethod,
-  PaymentStatus,
-} from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { requireSession } from "@/lib/auth/session";
-import { toActionError, type ActionResult } from "@/lib/errors";
+import { requireRole } from "@/lib/auth/session";
+import { AppError, toActionError, type ActionResult } from "@/lib/errors";
+import {
+  cashMovementSchema,
+  closeCashSchema,
+  confirmCountSchema,
+  confirmDraftSaleSchema,
+  createAdjustmentSchema,
+  createDraftSaleSchema,
+  createExpenseSchema,
+  createSaleSchema,
+  formValues,
+  initialInventorySchema,
+  openCashSchema,
+  quickAddCategorySchema,
+  quickAddIngredientSchema,
+  receivePurchaseSchema,
+  recipeIdSchema,
+  saveRecipeSchema,
+  voidPurchaseSchema,
+  voidSaleSchema,
+} from "./schemas";
 import {
   upsertIngredient,
   upsertIngredientCategory,
@@ -30,18 +44,20 @@ import {
 } from "@/modules/inventory/service";
 import { saveRecipe, deactivateRecipe, deleteRecipe } from "@/modules/recipes/service";
 
-export async function createSaleAction(payload: {
-  paymentMethod: PaymentMethod;
-  notes?: string;
-  globalDiscount?: number;
-  items: Array<{ productId: string; quantity: number; discount?: number }>;
-}): Promise<ActionResult<{ saleId: string; saleNumber: number; warnings: string[] }>> {
+// Los `payload` llegan como `unknown` a proposito: una server action es un
+// endpoint publico y los tipos de TypeScript no existen en tiempo de ejecucion.
+// El contrato real es el esquema de `./schemas`.
+
+export async function createSaleAction(
+  payload: unknown,
+): Promise<ActionResult<{ saleId: string; saleNumber: number; warnings: string[] }>> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("CASHIER");
+    const input = createSaleSchema.parse(payload);
     const result = await createSale({
       businessId: user.businessId,
       userId: user.id,
-      ...payload,
+      ...input,
     });
     revalidatePath("/ventas");
     revalidatePath("/resumen");
@@ -60,16 +76,16 @@ export async function createSaleAction(payload: {
   }
 }
 
-export async function createDraftSaleAction(payload: {
-  notes?: string;
-  items: Array<{ productId: string; quantity: number }>;
-}): Promise<ActionResult<{ saleId: string; saleNumber: number }>> {
+export async function createDraftSaleAction(
+  payload: unknown,
+): Promise<ActionResult<{ saleId: string; saleNumber: number }>> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("CASHIER");
+    const input = createDraftSaleSchema.parse(payload);
     const result = await createDraftSale({
       businessId: user.businessId,
       userId: user.id,
-      ...payload,
+      ...input,
     });
     revalidatePath("/ventas");
     return {
@@ -81,16 +97,16 @@ export async function createDraftSaleAction(payload: {
   }
 }
 
-export async function confirmDraftSaleAction(payload: {
-  saleId: string;
-  paymentMethod: "CASH" | "CARD" | "TRANSFER";
-}): Promise<ActionResult<{ warnings: string[] }>> {
+export async function confirmDraftSaleAction(
+  payload: unknown,
+): Promise<ActionResult<{ warnings: string[] }>> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("CASHIER");
+    const input = confirmDraftSaleSchema.parse(payload);
     const result = await confirmDraftSale({
       businessId: user.businessId,
       userId: user.id,
-      ...payload,
+      ...input,
     });
     revalidatePath("/ventas");
     revalidatePath("/resumen");
@@ -110,12 +126,13 @@ export async function voidSaleAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
+    const input = voidSaleSchema.parse(formValues(formData));
     await voidSale({
       businessId: user.businessId,
       userId: user.id,
-      saleId: String(formData.get("saleId") ?? ""),
-      reason: String(formData.get("reason") ?? ""),
+      saleId: input.saleId,
+      reason: input.reason,
     });
     revalidatePath("/ventas");
     revalidatePath("/resumen");
@@ -127,29 +144,16 @@ export async function voidSaleAction(
   }
 }
 
-export async function receivePurchaseAction(payload: {
-  supplierId: string;
-  documentNumber?: string;
-  paymentMethod: PaymentMethod;
-  paymentStatus?: PaymentStatus;
-  purchasedAt?: string;
-  taxTotal?: number;
-  notes?: string;
-  items: Array<{
-    ingredientId: string;
-    purchaseUnitId: string;
-    purchaseQuantity: number;
-    unitPrice: number;
-    lineTotal: number;
-    expiresAt?: string | null;
-  }>;
-}): Promise<ActionResult<{ purchaseId: string }>> {
+export async function receivePurchaseAction(
+  payload: unknown,
+): Promise<ActionResult<{ purchaseId: string }>> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
+    const input = receivePurchaseSchema.parse(payload);
     const purchase = await receivePurchase({
       businessId: user.businessId,
       userId: user.id,
-      ...payload,
+      ...input,
     });
     revalidatePath("/compras");
     revalidatePath("/inventario");
@@ -160,16 +164,16 @@ export async function receivePurchaseAction(payload: {
   }
 }
 
-export async function voidPurchaseAction(payload: {
-  purchaseId: string;
-  reason?: string;
-}): Promise<ActionResult> {
+export async function voidPurchaseAction(
+  payload: unknown,
+): Promise<ActionResult> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
+    const input = voidPurchaseSchema.parse(payload);
     await voidPurchase({
       businessId: user.businessId,
       userId: user.id,
-      ...payload,
+      ...input,
     });
     revalidatePath("/compras");
     revalidatePath("/inventario");
@@ -180,31 +184,27 @@ export async function voidPurchaseAction(payload: {
   }
 }
 
-export async function quickAddIngredientAction(payload: {
-  sku: string;
-  name: string;
-  baseUnitId: string;
-  categoryId?: string | null;
-  purchaseUnitId: string;
-  conversionFactor: number;
-}): Promise<ActionResult<{ ingredientId: string; purchaseUnitId: string }>> {
+export async function quickAddIngredientAction(
+  payload: unknown,
+): Promise<ActionResult<{ ingredientId: string; purchaseUnitId: string }>> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
+    const input = quickAddIngredientSchema.parse(payload);
     const ingredient = await upsertIngredient({
       businessId: user.businessId,
       userId: user.id,
-      sku: payload.sku,
-      name: payload.name,
-      baseUnitId: payload.baseUnitId,
-      categoryId: payload.categoryId || null,
+      sku: input.sku,
+      name: input.name,
+      baseUnitId: input.baseUnitId,
+      categoryId: input.categoryId,
       minimumStock: 0,
     });
     const purchaseUnit = await upsertPurchaseUnit({
       businessId: user.businessId,
       userId: user.id,
       ingredientId: ingredient.id,
-      unitId: payload.purchaseUnitId,
-      conversionFactor: payload.conversionFactor,
+      unitId: input.purchaseUnitId,
+      conversionFactor: input.conversionFactor,
     });
     revalidatePath("/compras");
     revalidatePath("/productos");
@@ -218,15 +218,12 @@ export async function quickAddIngredientAction(payload: {
   }
 }
 
-export async function quickAddCategoryAction(payload: {
-  name: string;
-}): Promise<ActionResult<{ id: string; name: string }>> {
+export async function quickAddCategoryAction(
+  payload: unknown,
+): Promise<ActionResult<{ id: string; name: string }>> {
   try {
-    const user = await requireSession();
-    const name = payload.name.trim();
-    if (!name) {
-      return { ok: false, message: "El nombre es obligatorio", code: "VALIDATION" };
-    }
+    const user = await requireRole("ADMIN");
+    const { name } = quickAddCategorySchema.parse(payload);
     const existing = await prisma.ingredientCategory.findFirst({
       where: {
         businessId: user.businessId,
@@ -234,11 +231,10 @@ export async function quickAddCategoryAction(payload: {
       },
     });
     if (existing) {
-      return {
-        ok: false,
-        message: `Ya existe una categoría similar: "${existing.name}"`,
+      throw new AppError(`Ya existe una categoría similar: "${existing.name}"`, {
         code: "DUPLICATE",
-      };
+        fieldErrors: { name: ["Ya existe una categoría con ese nombre"] },
+      });
     }
     const created = await upsertIngredientCategory({
       businessId: user.businessId,
@@ -257,11 +253,12 @@ export async function openCashAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("CASHIER");
+    const input = openCashSchema.parse(formValues(formData));
     await openCashSession({
       businessId: user.businessId,
       userId: user.id,
-      openingAmount: Number(formData.get("openingAmount") ?? 0),
+      openingAmount: input.openingAmount,
     });
     revalidatePath("/caja");
     revalidatePath("/resumen");
@@ -276,13 +273,14 @@ export async function cashMovementAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("CASHIER");
+    const input = cashMovementSchema.parse(formValues(formData));
     await addCashMovement({
       businessId: user.businessId,
       userId: user.id,
-      movementType: String(formData.get("movementType")) as CashMovementType,
-      amount: Number(formData.get("amount") ?? 0),
-      reason: String(formData.get("reason") ?? ""),
+      movementType: input.movementType,
+      amount: input.amount,
+      reason: input.reason,
     });
     revalidatePath("/caja");
     return { ok: true };
@@ -296,12 +294,13 @@ export async function closeCashAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
+    const input = closeCashSchema.parse(formValues(formData));
     await closeCashSession({
       businessId: user.businessId,
       userId: user.id,
-      countedAmount: Number(formData.get("countedAmount") ?? 0),
-      closeNotes: String(formData.get("closeNotes") ?? ""),
+      countedAmount: input.countedAmount,
+      closeNotes: input.closeNotes ?? "",
     });
     revalidatePath("/caja");
     revalidatePath("/resumen");
@@ -316,18 +315,19 @@ export async function createExpenseAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
+    const input = createExpenseSchema.parse(formValues(formData));
     await createExpense({
       businessId: user.businessId,
       userId: user.id,
-      expenseDate: String(formData.get("expenseDate") ?? ""),
-      category: String(formData.get("category")) as ExpenseCategory,
-      description: String(formData.get("description") ?? ""),
-      supplierId: (formData.get("supplierId") as string) || null,
-      beneficiary: String(formData.get("beneficiary") ?? ""),
-      subtotal: Number(formData.get("subtotal") ?? 0),
-      taxTotal: Number(formData.get("taxTotal") ?? 0),
-      paymentMethod: String(formData.get("paymentMethod")) as PaymentMethod,
+      expenseDate: input.expenseDate,
+      category: input.category,
+      description: input.description,
+      supplierId: input.supplierId,
+      beneficiary: input.beneficiary ?? "",
+      subtotal: input.subtotal,
+      taxTotal: input.taxTotal,
+      paymentMethod: input.paymentMethod,
     });
     revalidatePath("/gastos");
     revalidatePath("/caja");
@@ -343,17 +343,15 @@ export async function createAdjustmentAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
+    const input = createAdjustmentSchema.parse(formValues(formData));
     await createAdjustment({
       businessId: user.businessId,
       userId: user.id,
-      ingredientId: String(formData.get("ingredientId") ?? ""),
-      quantityDelta: Number(formData.get("quantityDelta") ?? 0),
-      reason: String(formData.get("reason") ?? ""),
-      type: String(formData.get("type") ?? "WASTE") as
-        | "WASTE"
-        | "ADJUSTMENT_IN"
-        | "ADJUSTMENT_OUT",
+      ingredientId: input.ingredientId,
+      quantityDelta: input.quantityDelta,
+      reason: input.reason,
+      type: input.type,
     });
     revalidatePath("/inventario");
     return { ok: true };
@@ -362,16 +360,16 @@ export async function createAdjustmentAction(
   }
 }
 
-export async function confirmCountAction(payload: {
-  notes?: string;
-  items: Array<{ ingredientId: string; physicalQuantity: number }>;
-}): Promise<ActionResult<{ countId: string }>> {
+export async function confirmCountAction(
+  payload: unknown,
+): Promise<ActionResult<{ countId: string }>> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
+    const input = confirmCountSchema.parse(payload);
     const count = await confirmInventoryCount({
       businessId: user.businessId,
       userId: user.id,
-      ...payload,
+      ...input,
     });
     revalidatePath("/inventario");
     return { ok: true, data: { countId: count.id } };
@@ -380,15 +378,16 @@ export async function confirmCountAction(payload: {
   }
 }
 
-export async function createInitialInventoryAction(payload: {
-  items: Array<{ ingredientId: string; quantity: number; unitCost: number }>;
-}): Promise<ActionResult> {
+export async function createInitialInventoryAction(
+  payload: unknown,
+): Promise<ActionResult> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
+    const input = initialInventorySchema.parse(payload);
     await createInitialInventory({
       businessId: user.businessId,
       userId: user.id,
-      ...payload,
+      ...input,
     });
     revalidatePath("/inventario");
     revalidatePath("/resumen");
@@ -398,23 +397,16 @@ export async function createInitialInventoryAction(payload: {
   }
 }
 
-export async function saveRecipeAction(payload: {
-  productId: string;
-  yieldQuantity?: number;
-  notes?: string;
-  items: Array<{
-    ingredientId: string;
-    quantity: number;
-    wastePercentage?: number;
-    isNonInventoriable?: boolean;
-  }>;
-}): Promise<ActionResult<{ recipeId: string; unitCost: string }>> {
+export async function saveRecipeAction(
+  payload: unknown,
+): Promise<ActionResult<{ recipeId: string; unitCost: string }>> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
+    const input = saveRecipeSchema.parse(payload);
     const result = await saveRecipe({
       businessId: user.businessId,
       userId: user.id,
-      ...payload,
+      ...input,
     });
     revalidatePath("/recetas");
     revalidatePath("/productos");
@@ -428,14 +420,15 @@ export async function saveRecipeAction(payload: {
 }
 
 export async function deactivateRecipeAction(
-  recipeId: string,
+  recipeId: unknown,
 ): Promise<ActionResult> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
+    const input = recipeIdSchema.parse({ recipeId });
     await deactivateRecipe({
       businessId: user.businessId,
       userId: user.id,
-      recipeId,
+      recipeId: input.recipeId,
     });
     revalidatePath("/recetas");
     revalidatePath("/productos");
@@ -446,14 +439,15 @@ export async function deactivateRecipeAction(
 }
 
 export async function deleteRecipeAction(
-  recipeId: string,
+  recipeId: unknown,
 ): Promise<ActionResult> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
+    const input = recipeIdSchema.parse({ recipeId });
     await deleteRecipe({
       businessId: user.businessId,
       userId: user.id,
-      recipeId,
+      recipeId: input.recipeId,
     });
     revalidatePath("/recetas");
     revalidatePath("/productos");

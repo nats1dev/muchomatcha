@@ -2,10 +2,19 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { requireBusinessContext, requireSession } from "@/lib/auth/session";
+import { requireBusinessContext, requireRole } from "@/lib/auth/session";
 import { toActionError, type ActionResult } from "@/lib/errors";
 import { money, d } from "@/lib/decimal";
 import { saveUpload } from "@/lib/upload";
+import {
+  formValues,
+  idOnlySchema,
+  saveCategorySchema,
+  saveIngredientSchema,
+  saveProductSchema,
+  savePurchaseUnitSchema,
+  saveSupplierSchema,
+} from "./schemas";
 import {
   upsertIngredient,
   upsertIngredientCategory,
@@ -22,17 +31,18 @@ export async function saveProductAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
-    const { user, business } = await requireBusinessContext();
+    const { user, business } = await requireBusinessContext("ADMIN");
+    const input = saveProductSchema.parse(formValues(formData));
 
-    const clientPrice = Number(formData.get("clientPrice") ?? 0);
     const taxRate = Number(business.taxRate);
-    const salePrice = money(d(clientPrice).div(d(1).plus(d(taxRate).div(100))));
+    const salePrice = money(
+      d(input.clientPrice).div(d(1).plus(d(taxRate).div(100))),
+    );
 
-    const id = (formData.get("id") as string) || undefined;
-    const oldImage = id
+    const oldImage = input.id
       ? (
           await prisma.product.findUnique({
-            where: { id },
+            where: { id: input.id },
             select: { image: true },
           })
         )?.image
@@ -46,13 +56,13 @@ export async function saveProductAction(
     await upsertProduct({
       businessId: user.businessId,
       userId: user.id,
-      id,
-      sku: String(formData.get("sku") ?? ""),
-      name: String(formData.get("name") ?? ""),
+      id: input.id,
+      sku: input.sku,
+      name: input.name,
       salePrice: salePrice.toNumber(),
-      categoryId: (formData.get("categoryId") as string) || null,
+      categoryId: input.categoryId,
       image,
-      active: formData.get("active") !== "false",
+      active: input.active,
     });
     revalidatePath("/productos");
     return { ok: true };
@@ -66,12 +76,13 @@ export async function saveProductCategoryAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
+    const input = saveCategorySchema.parse(formValues(formData));
     await upsertProductCategory({
       businessId: user.businessId,
       userId: user.id,
-      id: (formData.get("id") as string) || undefined,
-      name: String(formData.get("name") ?? ""),
+      id: input.id,
+      name: input.name,
     });
     revalidatePath("/productos");
     return { ok: true };
@@ -85,13 +96,13 @@ export async function saveIngredientAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
+    const input = saveIngredientSchema.parse(formValues(formData));
 
-    const id = (formData.get("id") as string) || undefined;
-    const oldImage = id
+    const oldImage = input.id
       ? (
           await prisma.ingredient.findUnique({
-            where: { id },
+            where: { id: input.id },
             select: { image: true },
           })
         )?.image
@@ -102,31 +113,20 @@ export async function saveIngredientAction(
       oldImage,
     );
 
-    const currentAverageCostRaw = formData.get("currentAverageCost");
-    const currentAverageCost = currentAverageCostRaw !== null && currentAverageCostRaw !== ""
-      ? Number(currentAverageCostRaw)
-      : undefined;
-
-    const purchaseUnitId = (formData.get("purchaseUnitId") as string) || undefined;
-    const conversionFactorRaw = formData.get("conversionFactor");
-    const conversionFactor = conversionFactorRaw && conversionFactorRaw !== ""
-      ? Number(conversionFactorRaw)
-      : undefined;
-
     await upsertIngredient({
       businessId: user.businessId,
       userId: user.id,
-      id,
-      sku: String(formData.get("sku") ?? ""),
-      name: String(formData.get("name") ?? ""),
-      baseUnitId: String(formData.get("baseUnitId") ?? ""),
-      categoryId: (formData.get("categoryId") as string) || null,
-      minimumStock: Number(formData.get("minimumStock") ?? 0),
-      currentAverageCost,
-      purchaseUnitId,
-      conversionFactor,
+      id: input.id,
+      sku: input.sku,
+      name: input.name,
+      baseUnitId: input.baseUnitId,
+      categoryId: input.categoryId,
+      minimumStock: input.minimumStock,
+      currentAverageCost: input.currentAverageCost,
+      purchaseUnitId: input.purchaseUnitId,
+      conversionFactor: input.conversionFactor,
       image,
-      active: formData.get("active") !== "false",
+      active: input.active,
     });
     revalidatePath("/inventario");
     revalidatePath("/productos");
@@ -141,12 +141,9 @@ export async function toggleProductActiveAction(
   formData: FormData,
 ): Promise<ActionResult<{ active: boolean; name: string }>> {
   try {
-    const user = await requireSession();
-    const updated = await deactivateProduct(
-      user.businessId,
-      String(formData.get("id") ?? ""),
-      user.id,
-    );
+    const user = await requireRole("ADMIN");
+    const { id } = idOnlySchema.parse(formValues(formData));
+    const updated = await deactivateProduct(user.businessId, id, user.id);
     revalidatePath("/productos");
     return { ok: true, data: { active: updated.active, name: updated.name } };
   } catch (e) {
@@ -159,12 +156,9 @@ export async function toggleIngredientActiveAction(
   formData: FormData,
 ): Promise<ActionResult<{ active: boolean; name: string }>> {
   try {
-    const user = await requireSession();
-    const updated = await deactivateIngredient(
-      user.businessId,
-      String(formData.get("id") ?? ""),
-      user.id,
-    );
+    const user = await requireRole("ADMIN");
+    const { id } = idOnlySchema.parse(formValues(formData));
+    const updated = await deactivateIngredient(user.businessId, id, user.id);
     revalidatePath("/inventario");
     revalidatePath("/productos");
     return { ok: true, data: { active: updated.active, name: updated.name } };
@@ -178,11 +172,12 @@ export async function saveIngredientCategoryAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
+    const input = saveCategorySchema.parse(formValues(formData));
     await upsertIngredientCategory({
       businessId: user.businessId,
       userId: user.id,
-      name: String(formData.get("name") ?? ""),
+      name: input.name,
     });
     revalidatePath("/inventario");
     return { ok: true };
@@ -196,13 +191,14 @@ export async function savePurchaseUnitAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
+    const input = savePurchaseUnitSchema.parse(formValues(formData));
     await upsertPurchaseUnit({
       businessId: user.businessId,
       userId: user.id,
-      ingredientId: String(formData.get("ingredientId") ?? ""),
-      unitId: String(formData.get("unitId") ?? ""),
-      conversionFactor: Number(formData.get("conversionFactor") ?? 0),
+      ingredientId: input.ingredientId,
+      unitId: input.unitId,
+      conversionFactor: input.conversionFactor,
     });
     revalidatePath("/inventario");
     revalidatePath("/compras");
@@ -217,16 +213,17 @@ export async function saveSupplierAction(
   formData: FormData,
 ): Promise<ActionResult<{ id: string; name: string }>> {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
+    const input = saveSupplierSchema.parse(formValues(formData));
     const supplier = await upsertSupplier({
       businessId: user.businessId,
       userId: user.id,
-      id: (formData.get("id") as string) || undefined,
-      name: String(formData.get("name") ?? ""),
-      taxId: String(formData.get("taxId") ?? ""),
-      phone: String(formData.get("phone") ?? ""),
-      email: String(formData.get("email") ?? ""),
-      active: formData.get("active") !== "false",
+      id: input.id,
+      name: input.name,
+      taxId: input.taxId ?? "",
+      phone: input.phone ?? "",
+      email: input.email ?? "",
+      active: input.active,
     });
     revalidatePath("/compras");
     revalidatePath("/configuracion");

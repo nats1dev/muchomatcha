@@ -21,11 +21,26 @@ import {
 import { calculateSaleTotals } from "../src/modules/sales/totals";
 import { calculateRecipeUnitCost } from "../src/modules/recipes/cost";
 
+// Con `prisma.config.ts`, Prisma ya no carga `.env` por su cuenta, y el seed
+// puede ejecutarse directamente con tsx (`npm run db:seed`). Lo cargamos aqui
+// para que funcione en ambos casos.
+try {
+  process.loadEnvFile(join(process.cwd(), ".env"));
+} catch {
+  // Sin archivo .env: se usan las variables del entorno tal cual.
+}
+
 function createSeedClient() {
-  let url = process.env.DATABASE_URL ?? "";
-  url = url.replace(":5432", ":6543");
-  const separator = url.includes("?") ? "&" : "?";
-  url = `${url}${separator}pgbouncer=true&connection_limit=3&pool_timeout=10`;
+  // El seed hace TRUNCATE y escrituras masivas en transacciones largas: eso
+  // necesita la conexion DIRECTA, no el pooler (pgbouncer en modo transaction
+  // no las soporta bien). DATABASE_URL queda como respaldo para entornos
+  // locales donde solo hay una URL.
+  const url = process.env.DIRECT_URL || process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "Falta DIRECT_URL (o DATABASE_URL) en el entorno. Revisa tu archivo .env.",
+    );
+  }
   return new PrismaClient({ datasources: { db: { url } } });
 }
 
@@ -51,6 +66,16 @@ function daysAgo(n: number) {
 
 async function main() {
   const t0 = Date.now();
+  // El seed BORRA la base entera. Esto es util en desarrollo y catastrofico en
+  // produccion, asi que exige confirmacion explicita fuera de desarrollo.
+  const forced = process.argv.includes("--force");
+  if (process.env.NODE_ENV === "production" && !forced) {
+    throw new Error(
+      "Rechazado: el seed hace TRUNCATE de todas las tablas y NODE_ENV=production.\n" +
+        "Si de verdad quieres borrar esta base, vuelve a ejecutarlo con --force.",
+    );
+  }
+
   console.log("Cleaning database...");
   const tables = [
     "audit_log",
@@ -93,7 +118,16 @@ async function main() {
     },
   });
 
-  const passwordHash = await hash("Matcha2026!", argonOpts);
+  // Sin contrasena por defecto: una credencial conocida en el repo es una
+  // cuenta de propietario abierta para cualquiera que despliegue esto.
+  const ownerPassword = process.env.SEED_OWNER_PASSWORD;
+  if (!ownerPassword) {
+    throw new Error(
+      "Falta SEED_OWNER_PASSWORD en el entorno. Definela antes de sembrar:\n" +
+        '  SEED_OWNER_PASSWORD="<contrasena-fuerte>" npm run db:seed',
+    );
+  }
+  const passwordHash = await hash(ownerPassword, argonOpts);
   const owner = await prisma.user.create({
     data: {
       businessId: business.id,
@@ -142,7 +176,7 @@ async function main() {
     console.log("Modo limpio: solo negocio, usuario y unidades base creados.");
     await applyBiViews(prisma);
     console.log("Seed limpio completado en", Math.round((Date.now() - t0) / 1000), "segundos.");
-    console.log("Login: owner@muchomatcha.gt / Matcha2026!");
+    console.log("Login: owner@muchomatcha.gt (contrasena: la definida en SEED_OWNER_PASSWORD)");
     return;
   }
 
@@ -782,7 +816,7 @@ async function main() {
   await applyBiViews(prisma);
 
   console.log("Seed completo en", Math.round((Date.now() - t0) / 1000), "segundos.");
-  console.log("Login: owner@muchomatcha.gt / Matcha2026!");
+  console.log("Login: owner@muchomatcha.gt (contrasena: la definida en SEED_OWNER_PASSWORD)");
   console.log("Seed mode: DEMO. Usa SEED_MODE=clean o --clean para arranque limpio.");
 }
 

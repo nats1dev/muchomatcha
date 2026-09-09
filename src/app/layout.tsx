@@ -20,8 +20,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" className={`${geistSans.variable} h-full antialiased`}>
-      <body className="min-h-full bg-background text-foreground">
+    // `suppressHydrationWarning` solo silencia los atributos de <html> y <body>,
+    // no los de sus hijos: las extensiones del navegador (modo lectura, gestores
+    // de temas) inyectan clases y `data-*` en estas dos etiquetas antes de que
+    // React hidrate, y esa diferencia no es un error de la aplicacion.
+    <html
+      lang="es"
+      className={`${geistSans.variable} h-full antialiased`}
+      suppressHydrationWarning
+    >
+      <body
+        className="min-h-full bg-background text-foreground"
+        suppressHydrationWarning
+      >
         <Providers>{children}</Providers>
       </body>
     </html>

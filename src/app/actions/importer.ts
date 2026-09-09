@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireSession } from "@/lib/auth/session";
+import { requireRole } from "@/lib/auth/session";
 import { toActionError, type ActionResult } from "@/lib/errors";
 import {
   upsertIngredient,
@@ -24,7 +24,7 @@ export async function importCsvAction(
   }>
 > {
   try {
-    const user = await requireSession();
+    const user = await requireRole("ADMIN");
     const file = formData.get("file") as File | null;
     if (!file)
       return { ok: false, message: "Selecciona un archivo CSV", code: "VALIDATION_ERROR" };

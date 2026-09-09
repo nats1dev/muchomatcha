@@ -23,7 +23,7 @@ export default async function ProduccionDetailPage({
   return (
     <div className="max-w-3xl">
       <PageHeader title={`Orden #${detail.order.orderNumber}`} />
-      <ProductionDetailCard detail={detail as never} />
+      <ProductionDetailCard detail={detail} />
     </div>
   );
 }
