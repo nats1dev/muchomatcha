@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useRef, useTransition } from "react";
 import { Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ export function CsvImportButton() {
       if (!res.ok) {
         toast.error(res.message);
       } else {
-        toast.success(res.message);
+        toast.success(res.data.summary);
         if (res.data?.errors.length) {
           toast.error(res.data.errors.join("\n"), { duration: 8000 });
         }

@@ -20,12 +20,14 @@ export async function importCsvAction(
     created: number;
     errors: string[];
     type: string;
+    summary: string;
   }>
 > {
   try {
     const user = await requireSession();
     const file = formData.get("file") as File | null;
-    if (!file) return { ok: false, message: "Selecciona un archivo CSV" };
+    if (!file)
+      return { ok: false, message: "Selecciona un archivo CSV", code: "VALIDATION_ERROR" };
 
     const content = await file.text();
     const result = parseImportCsv(content);
@@ -34,6 +36,7 @@ export async function importCsvAction(
       return {
         ok: false,
         message: result.errors.join("\n"),
+        code: "VALIDATION_ERROR",
       };
     }
 
@@ -127,8 +130,12 @@ export async function importCsvAction(
 
     return {
       ok: true,
-      message: `${created.length} ${result.type === "ingredients" ? "ingredientes" : "productos"} creados${allErrors.length ? `. ${allErrors.length} errores` : ""}`,
-      data: { created: created.length, errors: allErrors, type: result.type },
+      data: {
+        created: created.length,
+        errors: allErrors,
+        type: result.type,
+        summary: `${created.length} ${result.type === "ingredients" ? "ingredientes" : "productos"} creados${allErrors.length ? `. ${allErrors.length} errores` : ""}`,
+      },
     };
   } catch (e) {
     return toActionError(e);

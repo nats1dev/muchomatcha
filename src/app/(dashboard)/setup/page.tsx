@@ -8,7 +8,7 @@ export default async function SetupPage() {
   if (!session?.user?.businessId) return null;
   const businessId = session.user.businessId;
 
-  const [ingredients, units, ingredientCategories] = await Promise.all([
+  const [ingredients, units] = await Promise.all([
     prisma.ingredient.findMany({
       where: { businessId, active: true },
       include: { baseUnit: true },
@@ -17,10 +17,6 @@ export default async function SetupPage() {
     prisma.unit.findMany({
       where: { businessId, active: true },
       orderBy: { code: "asc" },
-    }),
-    prisma.ingredientCategory.findMany({
-      where: { businessId, active: true },
-      orderBy: { name: "asc" },
     }),
   ]);
 
@@ -40,7 +36,6 @@ export default async function SetupPage() {
           currentAverageCost: Number(i.currentAverageCost),
         }))}
         units={units.map((u) => ({ id: u.id, code: u.code, name: u.name }))}
-        categories={ingredientCategories.map((c) => ({ id: c.id, name: c.name }))}
       />
     </div>
   );

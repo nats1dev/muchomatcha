@@ -356,6 +356,7 @@ export function RecipeForm({
                 ingredientId: ingredients[0]?.id ?? "",
                 quantity: 1,
                 wastePercentage: 0,
+                isNonInventoriable: false,
               },
             ])
           }

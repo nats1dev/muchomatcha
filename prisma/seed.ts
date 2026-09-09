@@ -2,6 +2,7 @@ import {
   ExpenseCategory,
   MovementType,
   PaymentMethod,
+  Prisma,
   PrismaClient,
   SaleStatus,
 } from "@prisma/client";
@@ -596,7 +597,6 @@ async function main() {
       );
       const method =
         t % 3 === 0 ? PaymentMethod.CARD : t % 3 === 1 ? PaymentMethod.TRANSFER : PaymentMethod.CASH;
-      const voided = false;
 
       const soldAt = new Date(daysAgo(day));
       soldAt.setHours(8 + (t % 8), (t * 11) % 60, 0, 0);
@@ -690,7 +690,7 @@ async function main() {
 
   console.log("Seeding expenses...");
   const expenseCats: ExpenseCategory[] = ["RENT", "UTILITIES", "SALARIES", "SUPPLIES", "MARKETING", "MAINTENANCE", "TRANSPORT", "OTHER"];
-  const bulkExpenses: Array<any> = [];
+  const bulkExpenses: Array<Prisma.ExpenseCreateManyInput> = [];
   for (let i = 0; i < 8; i++) {
     const sub = money(100 + i * 17);
     const tax = money(sub.mul(0.12));
@@ -795,12 +795,10 @@ async function applyBiViews(client: typeof prisma) {
     try {
       await client.$executeRawUnsafe(part);
     } catch (err) {
-      console.warn("View statement failed (fine if exists):", (err as any).message);
+      console.warn("View statement failed (fine if exists):", err instanceof Error ? err.message : String(err));
     }
   }
 }
-
-const t0 = Date.now();
 
 function qtySafe(n: number) {
   return d(n);

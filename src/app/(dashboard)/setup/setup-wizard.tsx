@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Check, ChevronLeft, ChevronRight, Plus, Trash2, Package } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Plus, Package } from "lucide-react";
 import { saveIngredientAction } from "@/app/actions/catalog";
 import { createInitialInventoryAction } from "@/app/actions/operations";
 import { Button } from "@/components/ui/button";
@@ -37,11 +37,9 @@ type IngredientRow = {
 export function SetupWizard({
   initialIngredients,
   units,
-  categories,
 }: {
   initialIngredients: IngredientRow[];
   units: Array<{ id: string; code: string; name: string }>;
-  categories: Array<{ id: string; name: string }>;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -108,8 +106,6 @@ export function SetupWizard({
       prev.map((ing) => (ing.id === id ? { ...ing, [field]: value } : ing)),
     );
   }
-
-  const needsSetup = ingredients.length === 0;
 
   return (
     <div className="space-y-6">

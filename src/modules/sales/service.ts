@@ -617,7 +617,6 @@ export async function confirmDraftSale(input: {
     }
 
     const lineInputs = sale.items.map((item) => {
-      const product = productMap.get(item.productId);
       return {
         productId: item.productId,
         quantity: Number(item.quantity),

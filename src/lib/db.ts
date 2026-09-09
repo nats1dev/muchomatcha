@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
@@ -13,9 +13,14 @@ export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
-    transactionOptions: txTimeout || txMaxWait
-      ? { timeout: txTimeout, maxWait: txMaxWait }
-      : undefined,
-  } as any);
+    ...(txTimeout || txMaxWait
+      ? {
+          transactionOptions: {
+            ...(txTimeout ? { timeout: txTimeout } : {}),
+            ...(txMaxWait ? { maxWait: txMaxWait } : {}),
+          } satisfies NonNullable<Prisma.PrismaClientOptions["transactionOptions"]>,
+        }
+      : {}),
+  });
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;

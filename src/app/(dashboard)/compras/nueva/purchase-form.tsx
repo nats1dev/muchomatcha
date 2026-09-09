@@ -451,7 +451,7 @@ export function PurchaseForm({
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-[240px]">
                   <p>Presentación en la que compras. El número (×N) indica a cuántas unidades base equivale.</p>
-                  <p className="mt-1 text-muted-foreground">Ej: "kg × 1000 g" = 1 kg equivale a 1000 gramos</p>
+                  <p className="mt-1 text-muted-foreground">Ej: &ldquo;kg × 1000 g&rdquo; = 1 kg equivale a 1000 gramos</p>
                 </TooltipContent>
               </Tooltip>
             </span>

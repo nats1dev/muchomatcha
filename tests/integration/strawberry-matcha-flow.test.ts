@@ -8,8 +8,7 @@ process.env.PRISMA_TX_MAX_WAIT = "15000";
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { prisma } from "@/lib/db";
-import { toFixedQty, d } from "@/lib/decimal";
-import { PaymentMethod, SaleStatus, ProductionStatus } from "@prisma/client";
+import { PaymentMethod, PaymentStatus, SaleStatus, ProductionStatus } from "@prisma/client";
 import { calculateSaleTotals } from "@/modules/sales/totals";
 import { getIngredientStock } from "@/modules/inventory/stock";
 import {
@@ -45,7 +44,7 @@ describe("Flujo completo Strawberry Matcha", () => {
   let productCategoryId: string;
   let supplierId: string;
 
-  let raw: Record<string, { id: string; puId: string }> = {};
+  const raw: Record<string, { id: string; puId: string }> = {};
   let jaleaIngredientId: string;
   let strawberryProductId: string;
   let orderId: string;
@@ -142,7 +141,7 @@ describe("Flujo completo Strawberry Matcha", () => {
         userId: ctx.userId,
         supplierId,
         paymentMethod: PaymentMethod.TRANSFER,
-        paymentStatus: "PAID" as any,
+        paymentStatus: PaymentStatus.PAID,
         items: [{
           ingredientId: raw[item.key].id,
           purchaseUnitId: raw[item.key].puId,

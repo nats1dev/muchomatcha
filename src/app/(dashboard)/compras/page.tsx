@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { formatDateTime, formatDate } from "@/lib/dates";
+import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
