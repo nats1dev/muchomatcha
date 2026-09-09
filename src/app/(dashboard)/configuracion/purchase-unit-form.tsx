@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { savePurchaseUnitAction } from "@/app/actions/catalog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { LocalizedNumberInput } from "@/components/ui/localized-number-input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 
@@ -32,9 +32,8 @@ export function PurchaseUnitForm({
           </option>
         ))}
       </Select>
-      <Input
+      <LocalizedNumberInput decimals={6}
         name="conversionFactor"
-        type="number"
         step="0.000001"
         min="0.000001"
         placeholder="Factor a unidad base (ej. 1000)"

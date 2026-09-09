@@ -89,6 +89,24 @@ export const optionalPercentage = z.preprocess(
 );
 
 /**
+ * Merma de receta (REQ-03): la UI ofrece una lista de enteros 0-20
+ * (`src/lib/waste.ts`). El servidor lo exige tambien para que no entre
+ * por API directa un decimal o un valor > 20.
+ */
+export const wastePercentage = numberFromInput.pipe(
+  z
+    .number()
+    .int("La merma debe ser un número entero")
+    .min(0, "La merma no puede ser negativa")
+    .max(20, "La merma no puede pasar de 20%"),
+);
+
+export const optionalWastePercentage = z.preprocess(
+  emptyToUndefined,
+  wastePercentage.optional(),
+);
+
+/**
  * Importe con valor por defecto cuando el campo llega vacio o ausente.
  * No sirve `amount.default(0)`: `.default` solo mira el valor de ENTRADA, y
  * desde un formulario lo que llega es `""`, no `undefined`.
@@ -194,6 +212,25 @@ export const savePurchaseUnitSchema = z.object({
   conversionFactor: quantity,
 });
 
+const displayDecimals = numberFromInput.pipe(
+  z.number().int("Debe ser un entero").min(0).max(6),
+);
+
+export const saveNumberSettingsSchema = z.object({
+  numberFormat: z.enum(["US", "EU"]),
+  moneyDecimals: displayDecimals,
+  costDecimals: displayDecimals,
+  quantityDecimals: displayDecimals,
+});
+
+export const saveUnitSchema = z.object({
+  code: requiredText("El c\u00f3digo", 20).transform((value) => value.toLowerCase()),
+  name: requiredText("El nombre", 100),
+  decimals: displayDecimals,
+});
+
+export const toggleUnitSchema = z.object({ id: uuid });
+
 export const saveSupplierSchema = z.object({
   id: optionalUuid,
   name: requiredText("El nombre", 150),
@@ -214,6 +251,101 @@ export const quickAddIngredientSchema = z.object({
 
 export const quickAddCategorySchema = z.object({
   name: requiredText("El nombre", 100),
+});
+
+// ---------------------------------------------------------------------------
+// Importador CSV (REQ-02, REQ-13, DEC-18)
+// ---------------------------------------------------------------------------
+// Longitudes identicas a saveProductSchema / saveIngredientSchema /
+// saveCategorySchema para que el CSV no acepte lo que la UI rechaza.
+// Las celdas vacias llegan como "": se normalizan a `undefined` antes de
+// validar, asi un opcional vacio es "sin valor" y nunca un 0 silencioso.
+
+function optionalCategory() {
+  return z.preprocess(
+    (v) => (v === "" || v === null || v === undefined ? undefined : v),
+    requiredText("La categoría", 100).optional(),
+  );
+}
+
+export const importIngredientRowSchema = z
+  .object({
+    name: requiredText("El nombre", 150),
+    sku: requiredText("El código", 50).transform((s) => s.toUpperCase()),
+    baseUnit: requiredText("La unidad base", 20),
+    category: optionalCategory(),
+    minStock: optionalAmount,
+    purchaseUnit: optionalText(20),
+    conversionFactor: optionalQuantity,
+  })
+  .superRefine((v, ctx) => {
+    if (!!v.purchaseUnit !== (v.conversionFactor !== undefined)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "purchaseUnit y conversionFactor deben venir juntos o ninguno",
+        path: ["conversionFactor"],
+      });
+    }
+  });
+
+export const importProductRowSchema = z.object({
+  name: requiredText("El nombre", 150),
+  sku: requiredText("El código", 50).transform((s) => s.toUpperCase()),
+  salePrice: quantity,
+  category: optionalCategory(),
+});
+
+/** SI/NO/1/0/TRUE/FALSE (ES/EN); vacío = false. Resto → error de fila. */
+const importNonInventoriable = z.preprocess((v) => {
+  if (v === "" || v === null || v === undefined) return undefined;
+  const s = String(v).trim().toLowerCase();
+  if (["true", "1", "si", "sí", "yes"].includes(s)) return true;
+  if (["false", "0", "no"].includes(s)) return false;
+  return v;
+}, z.boolean({ error: "nonInventoriable debe ser SI/NO, 1/0 o TRUE/FALSE" }).optional());
+
+/** Merma entera 0–20 para CSV (igual regla que recetas en UI). */
+const importWastePercentage = z.preprocess(
+  (v) => (v === "" || v === null || v === undefined ? undefined : v),
+  numberFromInput.pipe(
+    z
+      .number()
+      .int("La merma debe ser un número entero")
+      .min(0, "La merma no puede ser negativa")
+      .max(20, "La merma no puede pasar de 20%"),
+  ).optional(),
+);
+
+/** Una fila = una línea de receta; el agrupado por receta vive en `csv-import`. */
+export const importRecipeLineSchema = z.object({
+  targetSku: requiredText("El código", 50).transform((s) => s.toUpperCase()),
+  ingredientSku: requiredText("El código del insumo", 50).transform((s) => s.toUpperCase()),
+  quantity,
+  wastePercentage: importWastePercentage,
+  nonInventoriable: importNonInventoriable,
+  yieldQuantity: optionalQuantity,
+  notes: optionalText(500),
+});
+
+export const importSupplierRowSchema = z.object({
+  name: requiredText("El nombre", 150),
+  taxId: optionalText(50),
+  phone: optionalText(50),
+  email: optionalText(200),
+});
+
+export const importInventoryRowSchema = z.object({
+  ingredientSku: requiredText("El código del insumo", 50).transform((s) => s.toUpperCase()),
+  quantity,
+  unitCost: amount,
+});
+
+/** Guardas del archivo antes de parsear: no vacio, maximo 2 MB, extension .csv. */
+export const importFileSchema = z.object({
+  size: z.number().positive("El archivo está vacío").max(2 * 1024 * 1024, "El archivo supera los 2 MB"),
+  name: z
+    .string()
+    .refine((n) => n.toLowerCase().endsWith(".csv"), "El archivo debe ser .csv"),
 });
 
 // ---------------------------------------------------------------------------
@@ -347,7 +479,7 @@ export const initialInventorySchema = z.object({
 const recipeItemSchema = z.object({
   ingredientId: uuid,
   quantity,
-  wastePercentage: optionalPercentage,
+  wastePercentage: optionalWastePercentage,
   isNonInventoriable: optionalBool,
 });
 
@@ -371,6 +503,12 @@ export const createProductionOrderSchema = z.object({
   ingredientId: uuid,
   quantity,
   notes: optionalText(500),
+  // Daily production is normally immediate; callers can explicitly preserve
+  // the draft workflow with `false`.
+  startImmediately: z.preprocess(
+    (v) => (v === undefined || v === null || v === "" ? true : v === true || v === "true"),
+    z.boolean(),
+  ),
 });
 
 export const orderIdSchema = z.object({ orderId: uuid });

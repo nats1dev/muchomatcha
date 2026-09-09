@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Pencil } from "lucide-react";
-import { formatCost, formatQty } from "@/lib/utils";
+import { useNumberFormatter } from "@/components/number-format-provider";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ type Row = {
   name: string;
   category: string;
   unit: string;
+  unitDecimals: number;
   quantityNum: number;
   minimumStock: string;
   averageCost: string;
@@ -53,6 +54,7 @@ export function InventoryTable({
   units: Array<{ id: string; code: string; name: string }>;
   categories: Array<{ id: string; name: string }>;
 }) {
+  const { formatCost, formatQty } = useNumberFormatter();
   const [editingId, setEditingId] = useState<string | null>(null);
   const editingIngredient = editingId
     ? ingredients.find((i) => i.id === editingId) ?? null
@@ -115,10 +117,10 @@ export function InventoryTable({
                       ) : null}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
-                      {formatQty(row.quantityNum)} {row.unit}
+                      {formatQty(row.quantityNum, row.unitDecimals)} {row.unit}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
-                      {row.minimumStock}
+                      {formatQty(row.minimumStock, row.unitDecimals)}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
                       {formatCost(Number(row.averageCost))}

@@ -16,11 +16,14 @@ src/
     api/                   route handlers (auth, exports CSV)
   modules/                 lógica de dominio (única fuente de verdad)
   components/              UI (ui/, layout/, production/, …)
-  lib/                     db, decimal, serialize, dates, csv-import, errors, utils
+  lib/                     db, decimal, serialize, dates, csv-import,
+                           import-troubleshooting (catálogo motivo/solución), errors, utils,
+                           waste (`waste.ts`: `WASTE_OPTIONS` 0–20 + `normalizeWastePercentage`)
 prisma/                    schema.prisma, migrations/, seed.ts
 sql/                       bi-views.sql (10 vistas bi_*), roles.sql
 tests/                     unit/{decimal,schemas}.test.ts, integration/strawberry-matcha-flow.test.ts
 docs/                      esta documentación
+public/                    logo-oficial.png y recursos estáticos
 ```
 
 ## Módulos de dominio (`src/modules/<modulo>/service.ts`)
@@ -29,7 +32,7 @@ docs/                      esta documentación
 |---|---|---|
 | Ventas | `sales/service.ts` | `createSale` (:32), `voidSale` (:261), `listSales` (:345), `createDraftSale` (:393), `confirmDraftSale` (:473). Totales: `sales/totals.ts:calculateSaleTotals` (:11) |
 | Recetas | `recipes/service.ts` | `saveRecipe` (:43), `saveSubproductRecipe` (:128), `listRecipes` (:249), `productsWithoutRecipe` (:342). Costo: `recipes/cost.ts:calculateRecipeUnitCost` (:13) |
-| Producción | `production/service.ts` | `createProductionOrder` (:86), `startProductionOrder` (:32), `completeProductionOrder` (:202), `cancelProductionOrder` (:373), `listProductionOrders` (:488), `getProductionOrderDetail` (:526), `listManufacturedIngredients` (:580) — las tres devuelven DTO serializado (ver convención abajo) |
+| Producción | `production/service.ts` | `createProductionOrder` (crea borrador o inicia inmediatamente), `startProductionOrder`, `completeProductionOrder` (transición idempotente), `cancelProductionOrder` (reversa controlada), `listProductionOrders`, `getProductionOrderDetail`, `listManufacturedIngredients` (preview serializado de costo/stock) |
 | Compras | `purchases/service.ts` | `receivePurchase` (:26), `voidPurchase` (:213) |
 | Inventario | `inventory/service.ts`, `inventory/stock.ts` | `createAdjustment` (:8), `confirmInventoryCount` (:82), `createInitialInventory` (:185), `getIngredientStock` (stock.ts:28), `listCurrentInventory` (stock.ts:40) |
 | Caja | `cash/service.ts`, `cash/expected.ts` | `openCashSession` (:16), `addCashMovement` (:57), `closeCashSession` (:169), `getOpenCashSession` (:245), `calculateExpectedCash` (expected.ts:4) |
@@ -66,6 +69,9 @@ convierte el `ZodError` en `fieldErrors` por campo. Verificar con:
 * Páginas: `src/app/(dashboard)/<modulo>/page.tsx` (ver tabla superior).
   Gestión de usuarios en `(dashboard)/configuracion/usuarios/`.
 * Server actions: `src/app/actions/{catalog,operations,production,importer,users}.ts`.
+  `importer.ts` expone `previewCsvAction` (dry-run) + `confirmCsvAction`
+  (escribe solo válidas); UI en `src/components/csv-import-button.tsx` +
+  `src/components/import-preview-dialog.tsx`.
   Sus contratos de entrada viven en `src/app/actions/schemas.ts` (un esquema Zod
   por acción + los primitivos `uuid`, `quantity`, `amount`, `isoDate`,
   `formValues`). Al escribir una acción nueva: añade su esquema ahí y parsea
@@ -110,12 +116,43 @@ convierte el `ZodError` en `fieldErrors` por campo. Verificar con:
   (:113), `bi_cash_closures` (:129), `bi_profit_and_loss_monthly` (:144),
   `bi_production_variance` (:177). Rol de lectura: `sql/roles.sql`.
 
+## Navegacion lateral agrupada (REQ-14)
+
+`src/components/layout/sidebar.tsx` organiza las rutas visibles por rol en tres
+grupos siempre abiertos: Operacion diaria, Produccion e inventario, y
+Administracion. El mismo contenido se usa en escritorio y menu movil; los
+grupos sin enlaces autorizados no se renderizan.
+
+## Formato numerico y unidades (DEC-20)
+
+Preferencias en `Business`; formato/parser en `src/lib/number-format.ts`;
+formularios en `/configuracion`; creacion y estado reversible de unidades en
+`modules/catalog/service.ts`. Migracion: `20260909223000_number_display_settings`.
+
 ## Tests y scripts
 
-* Unitarios: `tests/unit/decimal.test.ts` (6 casos) y `tests/unit/schemas.test.ts`
-  (14 casos, validación de la frontera). Ninguno requiere BD: `npm test`.
-* Integración: `tests/integration/strawberry-matcha-flow.test.ts` (12 pasos,
-  flujo completo; requiere `DATABASE_URL`; se corre con `run-integration-test.bat`).
+* Unitarios: `tests/unit/decimal.test.ts`, `tests/unit/recipe-cost.test.ts`,
+  `tests/unit/schemas.test.ts`, `tests/unit/csv-import.test.ts`,
+  `tests/unit/csv-import-phase-c.test.ts` y
+  `tests/unit/import-troubleshooting.test.ts` (validación de la frontera,
+  importador CSV y `startImmediately`). Ninguno requiere BD: `npm test`.
+* Integración: `tests/integration/strawberry-matcha-flow.test.ts` (17 pasos,
+  incluye concurrencia, idempotencia, reversa y stock insuficiente; requiere
+  `DATABASE_URL`; se corre con `run-integration-test.bat`).
 * Scripts (`package.json`): `dev`, `build`, `start`, `lint`, `typecheck`,
-  `test`, `test:integration`, `db:generate`, `db:migrate`, `db:push`,
-  `db:seed`, `db:studio`.
+  `test`, `test:integration`, `db:generate`, `db:migrate`,
+  `db:migrate:deploy`, `db:push`, `db:seed`, `db:studio`. Railway usa
+  `db:migrate:deploy` como comando pre-deploy y `start` ejecuta `next start`.
+
+## Plantillas de carga masiva (Fases A–C)
+
+* Libro y CSVs: `plantillas/plantillas-mucho-matcha.xlsx`,
+  `plantillas/csv/01-ingredientes.csv` … `08-compras-ejemplo.csv`,
+  instrucciones en `plantillas/README.md`. Importables: 01–02 (catálogo),
+  03 (proveedores), 05–06 (recetas, columna opcional `nonInventoriable`),
+  07 (inventario inicial con guardia de stock); 04 vía 01, 08 referencia
+  (`src/lib/csv-import.ts`, `src/app/actions/importer.ts` con
+  `previewCsvAction`/`confirmCsvAction`).
+* Generador (fuente única): `scripts/generate-templates.ts`
+  (`npx tsx scripts/generate-templates.ts`). Formato documentado en
+  `docs/IMPORTACION.md` (DOC-11).

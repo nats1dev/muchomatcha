@@ -1,6 +1,8 @@
+"use client";
+
 import Link from "next/link";
 import { formatDateTime } from "@/lib/dates";
-import { formatCost, formatQty } from "@/lib/utils";
+import { useNumberFormatter } from "@/components/number-format-provider";
 import { ProductionStatusBadge } from "./production-status-badge";
 
 type Order = {
@@ -11,8 +13,10 @@ type Order = {
   unitCost: string;
   totalCost: string;
   estimatedUnitCost: string | null;
+  estimatedTotalCost: string | null;
   status: string;
   occurredAt: Date;
+  completedAt: Date | null;
   startedAt: Date | null;
   ingredient: { name: string; sku: string; baseUnit: { code: string } };
   user: { name: string };
@@ -21,6 +25,7 @@ type Order = {
 };
 
 export function ProductionTable({ orders }: { orders: Order[] }) {
+  const { formatCost, formatQty } = useNumberFormatter();
   if (!orders.length) return null;
 
   return (
@@ -59,10 +64,27 @@ export function ProductionTable({ orders }: { orders: Order[] }) {
                 </span>
               </td>
               <td className="px-4 py-3">
-                {formatQty(order.quantity)} {order.ingredient.baseUnit.code}
+                {order.completedAt != null && order.actualQuantity != null
+                  ? formatQty(order.actualQuantity)
+                  : formatQty(order.quantity)} {order.ingredient.baseUnit.code}
+                {order.completedAt != null && order.actualQuantity != null && Number(order.actualQuantity) !== Number(order.quantity) ? (
+                  <span className="block text-xs text-muted-foreground">
+                    Plan: {formatQty(order.quantity)} {order.ingredient.baseUnit.code}
+                  </span>
+                ) : null}
               </td>
-              <td className="px-4 py-3">{formatCost(order.unitCost)}</td>
-              <td className="px-4 py-3">{formatCost(order.totalCost)}</td>
+              <td className="px-4 py-3">
+                {formatCost(order.completedAt != null ? order.unitCost : order.estimatedUnitCost ?? order.unitCost)}
+                {order.completedAt == null && order.estimatedUnitCost ? (
+                  <span className="block text-xs text-muted-foreground">Estimado</span>
+                ) : null}
+              </td>
+              <td className="px-4 py-3">
+                {formatCost(order.completedAt != null ? order.totalCost : order.estimatedTotalCost ?? order.totalCost)}
+                {order.completedAt == null && order.estimatedTotalCost ? (
+                  <span className="block text-xs text-muted-foreground">Estimado</span>
+                ) : null}
+              </td>
               <td className="px-4 py-3">
                 <ProductionStatusBadge status={order.status} />
               </td>

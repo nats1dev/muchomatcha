@@ -4,7 +4,8 @@ import { listCurrentInventory } from "@/modules/inventory/stock";
 import { listMovements } from "@/modules/inventory/service";
 import { prisma } from "@/lib/db";
 import { formatDateTime } from "@/lib/dates";
-import { formatCost, formatQty } from "@/lib/utils";
+import { formatCost as baseFormatCost, formatQty as baseFormatQty } from "@/lib/utils";
+import { getNumberDisplaySettings } from "@/lib/number-format-server";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,9 @@ export default async function InventarioPage({
   if (!session?.user?.businessId) return null;
   const sp = await searchParams;
   const businessId = session.user.businessId;
+  const numberSettings = await getNumberDisplaySettings(businessId);
+  const formatCost = (value: number | string) => baseFormatCost(value, "GTQ", numberSettings);
+  const formatQty = (value: number | string, decimals?: number) => baseFormatQty(value, decimals, numberSettings);
 
   const [inventory, movements, ingredients, units, ingredientCategories] =
     await Promise.all([

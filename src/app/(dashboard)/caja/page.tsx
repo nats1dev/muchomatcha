@@ -5,7 +5,8 @@ import {
   getOpenCashSession,
 } from "@/modules/cash/service";
 import { formatDateTime } from "@/lib/dates";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney as baseFormatMoney } from "@/lib/utils";
+import { getNumberDisplaySettings } from "@/lib/number-format-server";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +19,8 @@ export default async function CajaPage() {
   const session = await auth();
   if (!session?.user?.businessId) return null;
   const businessId = session.user.businessId;
+  const numberSettings = await getNumberDisplaySettings(businessId);
+  const formatMoney = (value: number | string) => baseFormatMoney(value, "GTQ", numberSettings);
 
   const open = await getOpenCashSession(businessId);
   const expected = open ? await getExpectedForSession(open.id) : null;

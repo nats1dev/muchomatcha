@@ -1,0 +1,12 @@
+﻿productSku,ingredientSku,quantity,wastePercentage,nonInventoriable,yieldQuantity,notes
+BEB-001,ING-MATCHA,3,5,,1,Menú base
+BEB-001,ING-LECHE,250,0,,1,Menú base
+BEB-001,ING-VASO12,1,0,,1,Menú base
+BEB-001,ING-TAPA,1,0,,1,Menú base
+BEB-013,ING-MATCHA,3,5,,1,
+BEB-013,ING-LECHE,250,0,,1,
+BEB-013,ING-HIELO,120,0,,1,
+BEB-013,ING-AGUA,50,0,,1,
+BEB-013,SUB-JALEA,40,0,,1,
+BEB-013,ING-VASO16,1,0,,1,
+BEB-013,ING-PAJILLA,1,0,,1,

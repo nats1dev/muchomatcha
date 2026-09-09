@@ -2,7 +2,8 @@ import { auth } from "@/auth";
 import { listExpenses } from "@/modules/expenses/service";
 import { prisma } from "@/lib/db";
 import { formatDate } from "@/lib/dates";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney as baseFormatMoney } from "@/lib/utils";
+import { getNumberDisplaySettings } from "@/lib/number-format-server";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +14,8 @@ export default async function GastosPage() {
   const session = await auth();
   if (!session?.user?.businessId) return null;
   const businessId = session.user.businessId;
+  const numberSettings = await getNumberDisplaySettings(businessId);
+  const formatMoney = (value: number | string) => baseFormatMoney(value, "GTQ", numberSettings);
 
   const [expenses, suppliers] = await Promise.all([
     listExpenses(businessId),

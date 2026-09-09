@@ -39,23 +39,25 @@ America/Guatemala. Detalle de setup en `../README.md`.
 | Tocar producción (órdenes, recetas de subproducto) | `JOURNEY.md` (pasos 4–6) + matriz filas REQ-17…REQ-22 |
 | Tocar ventas o caja | `JOURNEY.md` (pasos 9–12) + matriz filas REQ-04, REQ-05, REQ-09 |
 | Exportes CSV / vistas `bi_*` para Power BI | `MAPA-REPO.md` (sección Analítica) + matriz REQ-13, REQ-14, REQ-15 |
+| Importar CSV / plantillas Excel | `IMPORTACION.md` (DOC-11) + `plantillas/README.md` |
 | Onboarding a un agent nuevo | Este archivo + `JOURNEY.md` + `GLOSARIO.md` |
 
 ## Estado de salud conocido (2026-09-09)
 
 * `npm run typecheck` → 0 errores. `npm run lint` → 0 errores, 3 warnings diferidos
   (`exhaustive-deps` en `purchase-form.tsx`, 2× `<img>` vs `next/image`).
-* Tests unitarios: 20 pasan (`decimal`, `schemas`). Integración (12 casos, flujo Strawberry Matcha):
-  requiere `DATABASE_URL`, se ejecuta con `run-integration-test.bat`.
-* Producción Fase 1 (IN_PROGRESS, cantidad real, costo estimado persistido,
-  `startedAt`, vista `bi_production_variance`) ya está implementada en código.
+* Tests unitarios: 34 pasan (`decimal`, `recipe-cost`, `schemas`). Integración (17 casos, flujo Strawberry Matcha):
+  requiere `DATABASE_URL`, se ejecuta con `npm run test:integration`.
+* Producción Fase 1 (IN_PROGRESS, creación+inicio inmediato opcional, cantidad
+  real, costo estimado persistido, `startedAt`, transiciones idempotentes,
+  reversa controlada y vista `bi_production_variance`) ya está implementada en código.
 
 ### Puesta en producción — en curso (ver `IMPLEMENTACION.md`)
 
 * **Esquema versionado desde 2026-09-09.** El historial de migraciones se
   reconstruyó y la base se reseteó. **No usar `prisma db push`.**
-* **Se requieren dos URLs de base**: `DATABASE_URL` (pooler :6543) y
-  `DIRECT_URL` (:5432, para migrar). Ver `../README.md`.
+* **Se requieren dos URLs de base**: `DATABASE_URL` (pooler transaccional :6543)
+  y `DIRECT_URL` (pooler de sesión :5432, para migrar). Ver `../README.md`.
 * **Control de acceso por roles activo** (DEC-13/DEC-14): toda server action
   exige un rol mínimo. Si escribes una acción nueva, protégela con `requireRole`.
 * El seed ya no trae contraseña por defecto: exige `SEED_OWNER_PASSWORD`.

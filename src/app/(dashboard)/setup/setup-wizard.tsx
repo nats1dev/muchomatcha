@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
-import { formatCost } from "@/lib/utils";
+import { useNumberFormatter } from "@/components/number-format-provider";
 import { CsvImportButton } from "@/components/csv-import-button";
 
 const steps = [
@@ -41,6 +41,7 @@ export function SetupWizard({
   initialIngredients: IngredientRow[];
   units: Array<{ id: string; code: string; name: string }>;
 }) {
+  const { formatCost } = useNumberFormatter();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [step, setStep] = useState(initialIngredients.length > 0 ? 2 : 1);

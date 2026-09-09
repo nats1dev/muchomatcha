@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, ChevronUp, Factory } from "lucide-react";
+import { Plus, ChevronUp, Factory, Pencil } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,8 +16,13 @@ type Subproduct = {
   recipe: {
     id: string;
     version: number;
-    yieldQuantity: string;
+    yieldQuantity: number;
+    notes: string | null;
     items: Array<{
+      ingredientId: string;
+      quantity: number;
+      wastePercentage: number;
+      isNonInventoriable: boolean;
       ingredient: { id: string; name: string };
     }>;
   } | null;
@@ -26,13 +31,30 @@ type Subproduct = {
 export function SubproductSection({
   subproducts,
   allIngredients,
+  canEdit = true,
 }: {
   subproducts: Subproduct[];
   allIngredients: Array<{ id: string; name: string; unit: string; cost: number }>;
+  canEdit?: boolean;
 }) {
-  const [showForm, setShowForm] = useState(subproducts.length === 0);
+  const [showForm, setShowForm] = useState(canEdit && subproducts.length === 0);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const manufacturedIds = new Set(subproducts.map((s) => s.id));
+
+  const editingSubproduct = editingId
+    ? subproducts.find((s) => s.id === editingId)
+    : null;
+
+  function startEditing(id: string) {
+    setEditingId(id);
+    setShowForm(true);
+  }
+
+  function stopEditing() {
+    setEditingId(null);
+    setShowForm(false);
+  }
 
   return (
     <Card className="mb-4">
@@ -42,11 +64,17 @@ export function SubproductSection({
             <Factory className="h-4 w-4 text-muted-foreground" />
             Subproductos ({subproducts.length})
           </CardTitle>
-          <Button
+          {canEdit ? <Button
             type="button"
             variant={showForm ? "secondary" : "default"}
             size="sm"
-            onClick={() => setShowForm((prev) => !prev)}
+            onClick={() => {
+              if (showForm) {
+                stopEditing();
+              } else {
+                setShowForm(true);
+              }
+            }}
           >
             {showForm ? (
               <>
@@ -59,7 +87,7 @@ export function SubproductSection({
                 Definir subproducto
               </>
             )}
-          </Button>
+          </Button> : null}
         </div>
       </CardHeader>
       <CardContent>
@@ -68,7 +96,11 @@ export function SubproductSection({
             {subproducts.map((sp) => (
               <div
                 key={sp.id}
-                className="flex items-center justify-between rounded-[10px] border border-border px-3 py-2 text-sm"
+                className={`flex items-center justify-between gap-2 rounded-[10px] border px-3 py-2 text-sm ${
+                  editingId === sp.id
+                    ? "border-primary/40 bg-primary/5"
+                    : "border-border"
+                }`}
               >
                 <div>
                   <p className="font-medium">{sp.name}</p>
@@ -77,8 +109,35 @@ export function SubproductSection({
                     &middot; {sp.recipe?.items.length ?? 0} ingredientes
                     &middot; rinde {sp.recipe?.yieldQuantity ?? "—"} {sp.baseUnit.code}
                   </p>
+                  {sp.recipe && sp.recipe.items.length > 0 ? (
+                    <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                      {sp.recipe.items.map((item) => (
+                        <li key={item.ingredientId}>
+                          {item.ingredient.name}: {Number(item.quantity)}{" "}
+                          {Number(item.wastePercentage) > 0
+                            ? `(+${Number(item.wastePercentage)}% merma)`
+                            : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
-                <Badge variant="success">Subproducto</Badge>
+                <div className="flex shrink-0 items-center gap-0.5">
+                  <Badge variant="success">Subproducto</Badge>
+                  {canEdit && sp.recipe ? (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      onClick={() => startEditing(sp.id)}
+                      title={`Editar receta de ${sp.name}`}
+                      aria-label={`Editar receta de ${sp.name}`}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : null}
+                </div>
               </div>
             ))}
           </div>
@@ -91,12 +150,40 @@ export function SubproductSection({
           ) : null
         )}
 
-        {showForm ? (
+        {canEdit && showForm ? (
           <div className="rounded-[10px] border border-border p-4">
+            <p className="mb-3 text-sm font-medium">
+              {editingSubproduct
+                ? `Editar receta de ${editingSubproduct.name}`
+                : "Nueva receta de subproducto"}
+            </p>
             <SubproductRecipeForm
+              key={editingId ?? "new"}
               ingredients={allIngredients}
               manufacturedIds={manufacturedIds}
-              onSaved={() => setShowForm(false)}
+              initialData={
+                editingSubproduct?.recipe
+                  ? {
+                      ingredientId: editingSubproduct.id,
+                      ingredientName: editingSubproduct.name,
+                      yieldQuantity: Number(
+                        editingSubproduct.recipe.yieldQuantity,
+                      ),
+                      notes: editingSubproduct.recipe.notes ?? undefined,
+                      items: editingSubproduct.recipe.items
+                        // Ingredientes desactivados ya no vienen en
+                        // `allIngredients`: se conservan en la lista para no
+                        // perder la línea en silencio.
+                        .map((i) => ({
+                          ingredientId: i.ingredientId,
+                          quantity: Number(i.quantity),
+                          wastePercentage: Number(i.wastePercentage),
+                          isNonInventoriable: i.isNonInventoriable,
+                        })),
+                    }
+                  : undefined
+              }
+              onSaved={stopEditing}
             />
           </div>
         ) : null}

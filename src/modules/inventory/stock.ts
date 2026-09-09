@@ -70,6 +70,7 @@ export async function listCurrentInventory(businessId: string) {
       name: ing.name,
       category: ing.category?.name ?? "Sin categoría",
       unit: ing.baseUnit.code,
+      unitDecimals: ing.baseUnit.decimals,
       quantity: toFixedQty(quantity),
       quantityNum: quantity.toNumber(),
       minimumStock: toFixedQty(ing.minimumStock),

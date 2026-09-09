@@ -3,7 +3,8 @@ import { auth } from "@/auth";
 import { hasAtLeast, isRoleName } from "@/lib/auth/roles";
 import { prisma } from "@/lib/db";
 import { formatDate } from "@/lib/dates";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney as baseFormatMoney } from "@/lib/utils";
+import { getNumberDisplaySettings } from "@/lib/number-format-server";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,6 +33,8 @@ const paymentMethodLabel: Record<string, string> = {
 export default async function ComprasPage() {
   const session = await auth();
   if (!session?.user?.businessId) return null;
+  const numberSettings = await getNumberDisplaySettings(session.user.businessId);
+  const formatMoney = (value: number | string) => baseFormatMoney(value, "GTQ", numberSettings);
   const role = isRoleName(session.user.role) ? session.user.role : "VIEWER";
   const canVoid = hasAtLeast(role, "ADMIN");
 

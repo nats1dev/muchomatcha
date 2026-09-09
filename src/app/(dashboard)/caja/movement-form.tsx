@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { cashMovementAction } from "@/app/actions/operations";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { LocalizedNumberInput } from "@/components/ui/localized-number-input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,7 +21,7 @@ export function MovementForm() {
       </div>
       <div className="space-y-1.5">
         <Label>Monto</Label>
-        <Input name="amount" type="number" min="0.01" step="0.01" required />
+        <LocalizedNumberInput name="amount" decimals={2} min="0.01" step="0.01" required />
       </div>
       <div className="space-y-1.5">
         <Label>Motivo</Label>

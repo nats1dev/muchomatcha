@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { formatCost, formatMoney } from "@/lib/utils";
+import { useNumberFormatter } from "@/components/number-format-provider";
 
 type ProductRow = {
   id: string;
@@ -75,10 +75,6 @@ function IngredientThumbnail({
   );
 }
 
-function formatClientPrice(salePrice: number, taxRate: number) {
-  return formatMoney(salePrice * (1 + taxRate / 100));
-}
-
 export function CatalogTable({
   products,
   ingredients,
@@ -88,6 +84,8 @@ export function CatalogTable({
   ingredients: IngredientRow[];
   taxRate: number;
 }) {
+  const { formatCost, formatMoney } = useNumberFormatter();
+  const formatClientPrice = (salePrice: number, rate: number) => formatMoney(salePrice * (1 + rate / 100));
   async function handleToggleProduct(id: string, name: string, active: boolean) {
     const action = active ? "desactivar" : "reactivar";
     if (!confirm(`¿${action} "${name}"?`)) return;

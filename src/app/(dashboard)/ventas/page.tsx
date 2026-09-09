@@ -2,7 +2,8 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { listSales } from "@/modules/sales/service";
 import { resolvePeriod, type PeriodKey, formatDateTime } from "@/lib/dates";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney as baseFormatMoney } from "@/lib/utils";
+import { getNumberDisplaySettings } from "@/lib/number-format-server";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,6 +17,8 @@ export default async function VentasPage({
 }) {
   const session = await auth();
   if (!session?.user?.businessId) return null;
+  const numberSettings = await getNumberDisplaySettings(session.user.businessId);
+  const formatMoney = (value: number | string) => baseFormatMoney(value, "GTQ", numberSettings);
   const sp = await searchParams;
   const { from, to } = resolvePeriod((sp.period as PeriodKey) || "30d");
   const sales = await listSales(session.user.businessId, {

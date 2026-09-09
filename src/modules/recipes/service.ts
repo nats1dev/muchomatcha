@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
-import { toFixedQty } from "@/lib/decimal";
+import { toFixedCost, toFixedQty } from "@/lib/decimal";
 import { writeAudit } from "@/modules/audit/service";
 import { calculateRecipeUnitCost } from "@/modules/recipes/cost";
 
@@ -219,20 +219,6 @@ export async function saveSubproductRecipe(params: {
       },
     });
 
-    await tx.ingredient.update({
-      where: { id: params.ingredientId },
-      data: { recipeId: recipe.id },
-    });
-
-    await writeAudit(tx, {
-      businessId: params.businessId,
-      userId: params.userId,
-      action: "CREATE",
-      entityType: "recipe",
-      entityId: recipe.id,
-      afterData: { ingredientId: params.ingredientId, version },
-    });
-
     const unitCost = calculateRecipeUnitCost(
       recipe.items.map((i) => ({
         quantity: i.quantity.toString(),
@@ -241,6 +227,43 @@ export async function saveSubproductRecipe(params: {
       })),
       recipe.yieldQuantity.toString(),
     );
+
+    // Bloqueo Q0 (decisión del dueño 2026-09-09): el subproducto persiste su
+    // costo en `currentAverageCost`, así que no puede nacer en cero. Se valida
+    // en el servidor porque la UI se puede saltear. El `throw` revierte el `tx`.
+    const hasZeroCostInput = recipe.items.some(
+      (i) => Number(i.ingredient.currentAverageCost) <= 0,
+    );
+    if (hasZeroCostInput) {
+      throw new AppError(
+        "Todos los ingredientes deben tener costo promedio mayor a cero para guardar el subproducto",
+      );
+    }
+
+    // Estimado persistido (decisión del dueño 2026-09-09): el subproducto ya
+    // sale con costo unitario en Recetas sin esperar a producir. Sobrescribe
+    // directo, sin movimiento de kardex; `completeProductionOrder` lo vuelve a
+    // promediar con el stock real al producir.
+    await tx.ingredient.update({
+      where: { id: params.ingredientId },
+      data: {
+        recipeId: recipe.id,
+        currentAverageCost: toFixedCost(unitCost),
+      },
+    });
+
+    await writeAudit(tx, {
+      businessId: params.businessId,
+      userId: params.userId,
+      action: "CREATE",
+      entityType: "recipe",
+      entityId: recipe.id,
+      afterData: {
+        ingredientId: params.ingredientId,
+        version,
+        unitCost: unitCost.toFixed(4),
+      },
+    });
 
     return { recipe, unitCost: unitCost.toFixed(4) };
   });

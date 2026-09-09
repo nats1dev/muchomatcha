@@ -3,12 +3,13 @@
 import { useActionState } from "react";
 import { closeCashAction } from "@/app/actions/operations";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { LocalizedNumberInput } from "@/components/ui/localized-number-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { formatMoney } from "@/lib/utils";
+import { useNumberFormatter } from "@/components/number-format-provider";
 
 export function CloseCashForm({ expected }: { expected: number }) {
+  const { formatMoney } = useNumberFormatter();
   const [state, action, pending] = useActionState(closeCashAction, null);
   return (
     <form action={action} className="space-y-3">
@@ -20,9 +21,8 @@ export function CloseCashForm({ expected }: { expected: number }) {
       </p>
       <div className="space-y-1.5">
         <Label>Efectivo contado</Label>
-        <Input
+        <LocalizedNumberInput decimals={2}
           name="countedAmount"
-          type="number"
           min="0"
           step="0.01"
           required

@@ -23,7 +23,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogFooter, DialogClose,
 } from "@/components/ui/dialog";
-import { formatCost, formatMoney } from "@/lib/utils";
+import { useNumberFormatter } from "@/components/number-format-provider";
 
 function LabelWithTooltip({
   label,
@@ -86,6 +86,7 @@ export function PurchaseForm({
   taxRate: number;
   lastUnitPrices: Record<string, number>;
 }) {
+  const { formatCost, formatMoney } = useNumberFormatter();
   const router = useRouter();
   const usable = ingredients.filter((i) => i.purchaseUnits.length > 0);
 

@@ -1,4 +1,4 @@
-import { MovementType, ProductionStatus } from "@prisma/client";
+import { MovementType, Prisma, ProductionStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import {
@@ -14,7 +14,7 @@ import {
 } from "@/lib/decimal";
 import { serializeDecimals } from "@/lib/serialize";
 import { writeAudit } from "@/modules/audit/service";
-import { getIngredientStock } from "@/modules/inventory/stock";
+import { getIngredientStock, getStockMap } from "@/modules/inventory/stock";
 
 type CreateProductionOrderInput = {
   businessId: string;
@@ -22,6 +22,9 @@ type CreateProductionOrderInput = {
   ingredientId: string;
   quantity: number;
   notes?: string;
+  /** The UI can create and start in one transaction; domain callers keep the
+   * historical default of creating a draft. */
+  startImmediately?: boolean;
 };
 
 type StartProductionOrderInput = {
@@ -47,13 +50,22 @@ export async function startProductionOrder(input: StartProductionOrderInput) {
       });
     }
 
-    const updated = await tx.productionOrder.update({
-      where: { id: order.id },
+    const claimed = await tx.productionOrder.updateMany({
+      where: { id: order.id, businessId: input.businessId, status: ProductionStatus.DRAFT },
       data: {
         status: ProductionStatus.IN_PROGRESS,
         startedAt: new Date(),
         startedById: input.userId,
       },
+    });
+    if (claimed.count !== 1) {
+      throw new AppError("La orden ya fue iniciada por otro usuario", {
+        code: "ORDER_ALREADY_STARTED",
+      });
+    }
+
+    const updated = await tx.productionOrder.findUniqueOrThrow({
+      where: { id: order.id },
     });
 
     await writeAudit(tx, {
@@ -84,7 +96,46 @@ type CancelProductionOrderInput = {
   reason: string;
 };
 
-export async function createProductionOrder(input: CreateProductionOrderInput) {
+/**
+ * Replays the complete inventory ledger for one ingredient. Average cost is
+ * affected by every inbound movement (including reversals and counts), while
+ * outbound movements only change quantity. A manual cost adjustment changes
+ * the current average without changing quantity.
+ */
+async function recalculateAverageCost(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  ingredientId: string,
+) {
+  const movements = await tx.inventoryMovement.findMany({
+    where: { businessId, ingredientId },
+    select: { movementType: true, quantityDelta: true, unitCost: true },
+    orderBy: [{ occurredAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+  });
+
+  let stock = d(0);
+  let average = d(0);
+  for (const movement of movements) {
+    const delta = d(movement.quantityDelta);
+    if (movement.movementType === MovementType.COST_ADJUSTMENT) {
+      average = cost(movement.unitCost);
+      continue;
+    }
+    if (delta.gt(0)) {
+      average = weightedAverageCost({
+        previousQty: stock,
+        previousAvgCost: average,
+        inboundQty: delta,
+        inboundUnitCost: movement.unitCost,
+      });
+    }
+    stock = stock.plus(delta);
+  }
+
+  return { stock, average: cost(average) };
+}
+
+async function createProductionOrderOnce(input: CreateProductionOrderInput) {
   if (input.quantity <= 0) {
     throw new AppError("La cantidad debe ser mayor a 0", {
       code: "INVALID_QTY",
@@ -128,6 +179,7 @@ export async function createProductionOrder(input: CreateProductionOrderInput) {
     });
     const orderNumber = (last?.orderNumber ?? 0) + 1;
 
+    const startImmediately = input.startImmediately === true;
     const order = await tx.productionOrder.create({
       data: {
         businessId: input.businessId,
@@ -135,7 +187,10 @@ export async function createProductionOrder(input: CreateProductionOrderInput) {
         ingredientId: input.ingredientId,
         recipeId: ingredient.recipe.id,
         quantity: toFixedQty(input.quantity),
-        status: ProductionStatus.DRAFT,
+        status: startImmediately ? ProductionStatus.IN_PROGRESS : ProductionStatus.DRAFT,
+        ...(startImmediately
+          ? { startedAt: new Date(), startedById: input.userId }
+          : {}),
         notes: input.notes,
         userId: input.userId,
       },
@@ -164,6 +219,18 @@ export async function createProductionOrder(input: CreateProductionOrderInput) {
       },
     });
 
+    if (startImmediately) {
+      await writeAudit(tx, {
+        businessId: input.businessId,
+        userId: input.userId,
+        action: "START",
+        entityType: "production_order",
+        entityId: order.id,
+        beforeData: { status: ProductionStatus.DRAFT },
+        afterData: { status: ProductionStatus.IN_PROGRESS },
+      });
+    }
+
     const itemsWithCost = order.recipe.items.map((ri) => {
       const effective = effectiveRecipeQty({
         quantity: ri.quantity,
@@ -188,15 +255,56 @@ export async function createProductionOrder(input: CreateProductionOrderInput) {
       : d(0);
     const estimatedTotalCost = money(estimatedUnitCost.mul(d(input.quantity)));
 
-    await tx.productionOrder.update({
+    const updatedOrder = await tx.productionOrder.update({
       where: { id: order.id },
       data: {
         estimatedUnitCost: toFixedCost(estimatedUnitCost),
         estimatedTotalCost: toFixedMoney(estimatedTotalCost),
       },
+      include: {
+        ingredient: { select: { name: true, sku: true, baseUnit: true } },
+        recipe: {
+          include: {
+            items: {
+              include: {
+                ingredient: {
+                  select: { name: true, sku: true, currentAverageCost: true },
+                },
+              },
+            },
+          },
+        },
+      },
     });
 
-    return { order, items: itemsWithCost, estimatedUnitCost: estimatedUnitCost.toFixed(4) };
+    return {
+      order: updatedOrder,
+      items: itemsWithCost,
+      estimatedUnitCost: estimatedUnitCost.toFixed(4),
+    };
+  });
+}
+
+/**
+ * The order number is intentionally human-friendly and scoped to a business.
+ * The unique index remains the authority when two operators create at once;
+ * retry the short read-then-insert window instead of surfacing a 500.
+ */
+export async function createProductionOrder(input: CreateProductionOrderInput) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await createProductionOrderOnce(input);
+    } catch (error) {
+      const isUnique =
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002" &&
+        Array.isArray(error.meta?.target) &&
+        error.meta.target.some((target) => String(target).includes("business_id"));
+      if (!isUnique || attempt === 2) throw error;
+    }
+  }
+  throw new AppError("No se pudo asignar un número de orden", {
+    code: "ORDER_NUMBER_CONFLICT",
   });
 }
 
@@ -242,6 +350,27 @@ export async function completeProductionOrder(input: CompleteProductionOrderInpu
     if (input.actualQuantity != null && input.actualQuantity <= 0) {
       throw new AppError("El rendimiento real debe ser mayor a 0", {
         code: "INVALID_QTY",
+      });
+    }
+
+    // Claim the transition before reading stock or writing movements. The row
+    // lock makes a repeated/concurrent completion fail without duplicating
+    // inventory movements. The whole transaction rolls back if validation
+    // below fails, restoring IN_PROGRESS.
+    const claimed = await tx.productionOrder.updateMany({
+      where: {
+        id: order.id,
+        businessId: input.businessId,
+        status: ProductionStatus.IN_PROGRESS,
+      },
+      // COMPLETED is the only terminal state available in the schema. Claim
+      // it before side effects; a validation error rolls the transaction back
+      // to IN_PROGRESS, while a concurrent request observes count = 0.
+      data: { status: ProductionStatus.COMPLETED, updatedAt: new Date() },
+    });
+    if (claimed.count !== 1) {
+      throw new AppError("La orden ya fue procesada por otro usuario", {
+        code: "ORDER_ALREADY_PROCESSED",
       });
     }
 
@@ -296,6 +425,15 @@ export async function completeProductionOrder(input: CompleteProductionOrderInpu
     const unitCost = actualQty.gt(0) ? cost(totalInputCost.div(actualQty)) : d(0);
     const totalCostMovements = money(unitCost.mul(actualQty));
 
+    // Capture the stock before crediting the produced ingredient. Including
+    // the inbound movement here would count the batch twice in the weighted
+    // average calculation.
+    const previousOutputStock = await getIngredientStock(
+      input.businessId,
+      order.ingredientId,
+      tx,
+    );
+
     for (const mov of movementsOut) {
       await tx.inventoryMovement.create({
         data: {
@@ -326,9 +464,8 @@ export async function completeProductionOrder(input: CompleteProductionOrderInpu
       },
     });
 
-    const prevStock = await getIngredientStock(input.businessId, order.ingredientId, tx);
     const newAvg = weightedAverageCost({
-      previousQty: prevStock,
+      previousQty: previousOutputStock,
       previousAvgCost: order.ingredient.currentAverageCost,
       inboundQty: actualQty,
       inboundUnitCost: unitCost,
@@ -381,7 +518,11 @@ export async function cancelProductionOrder(input: CancelProductionOrderInput) {
   return prisma.$transaction(async (tx) => {
     const order = await tx.productionOrder.findFirst({
       where: { id: input.orderId, businessId: input.businessId },
-      include: { ingredient: true },
+      include: {
+        ingredient: {
+          include: { baseUnit: { select: { code: true } } },
+        },
+      },
     });
     if (!order) {
       throw new AppError("Orden de producción no encontrada", {
@@ -393,6 +534,22 @@ export async function cancelProductionOrder(input: CancelProductionOrderInput) {
       return order;
     }
 
+    const claimed = await tx.productionOrder.updateMany({
+      where: {
+        id: order.id,
+        businessId: input.businessId,
+        status: order.status,
+      },
+      // Claim the terminal transition before creating reversal movements. If
+      // stock validation fails, the transaction restores the original state.
+      data: { status: ProductionStatus.CANCELLED, updatedAt: new Date() },
+    });
+    if (claimed.count !== 1) {
+      throw new AppError("La orden ya fue procesada por otro usuario", {
+        code: "ORDER_ALREADY_PROCESSED",
+      });
+    }
+
     if (order.status === ProductionStatus.COMPLETED) {
       const originalMovements = await tx.inventoryMovement.findMany({
         where: {
@@ -401,6 +558,26 @@ export async function cancelProductionOrder(input: CancelProductionOrderInput) {
           referenceId: order.id,
         },
       });
+
+      const producedQuantity = originalMovements
+        .filter((mov) => mov.movementType === MovementType.PRODUCTION_IN)
+        .reduce((sum, mov) => sum.plus(d(mov.quantityDelta)), d(0));
+      const currentStock = await getIngredientStock(
+        input.businessId,
+        order.ingredientId,
+        tx,
+      );
+      if (currentStock.lt(producedQuantity)) {
+        throw new AppError(
+          `No se puede anular: quedan ${toFixedQty(currentStock)} ${order.ingredient.baseUnit?.code ?? "u"} y se necesitan ${toFixedQty(producedQuantity)} para retirar la producción.`,
+          { code: "INSUFFICIENT_STOCK_FOR_CANCEL" },
+        );
+      }
+
+      const affectedIngredientIds = new Set<string>([
+        order.ingredientId,
+        ...originalMovements.map((mov) => mov.ingredientId),
+      ]);
 
       for (const mov of originalMovements) {
         await tx.inventoryMovement.create({
@@ -420,46 +597,17 @@ export async function cancelProductionOrder(input: CancelProductionOrderInput) {
         });
       }
 
-      const remainingProduction = await tx.inventoryMovement.findMany({
-        where: {
-          businessId: input.businessId,
-          ingredientId: order.ingredientId,
-          movementType: MovementType.PRODUCTION_IN,
-          referenceId: { not: order.id },
-        },
-        orderBy: { occurredAt: "asc" },
-      });
-
-      let totalQty = d(0);
-      let totalValue = d(0);
-      for (const mov of remainingProduction) {
-        const q = d(mov.quantityDelta);
-        const c = d(mov.unitCost);
-        totalQty = totalQty.plus(q);
-        totalValue = totalValue.plus(q.mul(c));
+      for (const ingredientId of affectedIngredientIds) {
+        const { average } = await recalculateAverageCost(
+          tx,
+          input.businessId,
+          ingredientId,
+        );
+        await tx.ingredient.update({
+          where: { id: ingredientId },
+          data: { currentAverageCost: toFixedCost(average) },
+        });
       }
-
-      const purchasedMovements = await tx.inventoryMovement.findMany({
-        where: {
-          businessId: input.businessId,
-          ingredientId: order.ingredientId,
-          movementType: MovementType.PURCHASE,
-        },
-        orderBy: { occurredAt: "asc" },
-      });
-      for (const mov of purchasedMovements) {
-        const q = d(mov.quantityDelta);
-        const c = d(mov.unitCost);
-        totalQty = totalQty.plus(q);
-        totalValue = totalValue.plus(q.mul(c));
-      }
-
-      const newAvg = totalQty.gt(0) ? cost(totalValue.div(totalQty)) : cost(0);
-
-      await tx.ingredient.update({
-        where: { id: order.ingredientId },
-        data: { currentAverageCost: toFixedCost(newAvg) },
-      });
     }
 
     const updated = await tx.productionOrder.update({
@@ -575,7 +723,8 @@ export async function getProductionOrderDetail(businessId: string, orderId: stri
     orderBy: { occurredAt: "asc" },
   });
 
-  return serializeDecimals({ order, movements });
+  const ingredientStock = await getIngredientStock(businessId, order.ingredientId);
+  return serializeDecimals({ order, movements, ingredientStock });
 }
 
 export async function listManufacturedIngredients(businessId: string) {
@@ -593,10 +742,17 @@ export async function listManufacturedIngredients(businessId: string) {
           id: true,
           version: true,
           yieldQuantity: true,
+          notes: true,
           items: {
             include: {
               ingredient: {
-                select: { id: true, name: true, sku: true, baseUnit: { select: { code: true } } },
+                select: {
+                  id: true,
+                  name: true,
+                  sku: true,
+                  currentAverageCost: true,
+                  baseUnit: { select: { code: true } },
+                },
               },
             },
           },
@@ -605,7 +761,44 @@ export async function listManufacturedIngredients(businessId: string) {
     },
     orderBy: { name: "asc" },
   });
-  return serializeDecimals(ingredients);
+
+  const ingredientIds = [
+    ...new Set(ingredients.flatMap((item) => item.recipe?.items.map((line) => line.ingredientId) ?? [])),
+  ];
+  const stockMap = await getStockMap(businessId, ingredientIds);
+  const withPreview = ingredients.map((ingredient) => {
+    const recipe = ingredient.recipe;
+    let estimatedUnitCost = d(0);
+    if (recipe) {
+      for (const line of recipe.items) {
+        const effective = effectiveRecipeQty({
+          quantity: line.quantity,
+          wastePercentage: line.wastePercentage,
+          yieldQuantity: recipe.yieldQuantity,
+        });
+        estimatedUnitCost = estimatedUnitCost.plus(
+          effective.mul(line.ingredient.currentAverageCost),
+        );
+      }
+    }
+    return {
+      ...ingredient,
+      estimatedUnitCost: toFixedCost(estimatedUnitCost),
+      recipe: recipe
+        ? {
+            ...recipe,
+            items: recipe.items.map((line) => ({
+              ...line,
+              ingredient: {
+                ...line.ingredient,
+                stockQuantity: toFixedQty(stockMap.get(line.ingredientId) ?? d(0)),
+              },
+            })),
+          }
+        : null,
+    };
+  });
+  return serializeDecimals(withPreview);
 }
 
 export async function getSubproductRecipe(businessId: string, ingredientId: string) {

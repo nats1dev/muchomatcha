@@ -5,7 +5,9 @@ import { toast } from "sonner";
 import { Plus, Trash2, AlertTriangle, Search } from "lucide-react";
 import { saveSubproductRecipeAction } from "@/app/actions/production";
 import { calculateRecipeUnitCost } from "@/modules/recipes/cost";
-import { formatMoney } from "@/lib/utils";
+import { d } from "@/lib/decimal";
+import { WASTE_OPTIONS } from "@/lib/waste";
+import { useNumberFormatter } from "@/components/number-format-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,30 +22,38 @@ type Item = {
   isNonInventoriable: boolean;
 };
 
+export type SubproductRecipeInitialData = {
+  ingredientId: string;
+  ingredientName: string;
+  yieldQuantity: number;
+  notes?: string;
+  items: Item[];
+};
+
 export function SubproductRecipeForm({
   ingredients,
   manufacturedIds,
+  initialData,
   onSaved,
 }: {
   ingredients: Array<{ id: string; name: string; unit: string; cost: number }>;
   manufacturedIds?: Set<string>;
+  initialData?: SubproductRecipeInitialData;
   onSaved?: () => void;
 }) {
+  const { formatMoney } = useNumberFormatter();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const [ingredientId, setIngredientId] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [ingredientId, setIngredientId] = useState(initialData?.ingredientId ?? "");
+  const [searchQuery, setSearchQuery] = useState(initialData?.ingredientName ?? "");
   const [showDropdown, setShowDropdown] = useState(false);
-  const [yieldQuantity, setYieldQuantity] = useState(1);
-  const [notes, setNotes] = useState("");
-  const [items, setItems] = useState<Item[]>([
-    {
-      ingredientId: "",
-      quantity: 1,
-      wastePercentage: 0,
-      isNonInventoriable: false,
-    },
-  ]);
+  const [yieldQuantity, setYieldQuantity] = useState(initialData?.yieldQuantity ?? 1);
+  const [notes, setNotes] = useState(initialData?.notes ?? "");
+  const [items, setItems] = useState<Item[]>(
+    initialData?.items.length
+      ? initialData.items
+      : [{ ingredientId: "", quantity: 1, wastePercentage: 0, isNonInventoriable: false }],
+  );
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -88,10 +98,12 @@ export function SubproductRecipeForm({
     return dups;
   }, [filledItems]);
 
-  const costPreview = useMemo(() => {
+  // Resumen de lote (solo lectura): misma fuente que Recetas —
+  // `calculateRecipeUnitCost` para el unitario, lote = unitario × rendimiento.
+  const costSummary = useMemo(() => {
     if (!filledItems.length || yieldQuantity <= 0) return null;
     try {
-      const cost = calculateRecipeUnitCost(
+      const unit = calculateRecipeUnitCost(
         filledItems.map((i) => ({
           quantity: i.quantity,
           wastePercentage: i.wastePercentage,
@@ -100,14 +112,28 @@ export function SubproductRecipeForm({
         })),
         yieldQuantity,
       );
-      return formatMoney(Number(cost));
+      const batch = d(unit).mul(d(yieldQuantity));
+      return {
+        unit: formatMoney(Number(unit)),
+        batch: formatMoney(Number(batch)),
+        yield: yieldQuantity,
+      };
     } catch {
       return null;
     }
-  }, [filledItems, yieldQuantity, ingredients]);
+  }, [filledItems, yieldQuantity, ingredients, formatMoney]);
 
   const selfReferencing = filledItems.some(
     (i) => i.ingredientId === ingredientId,
+  );
+
+  // Bloqueo Q0 (decisión del dueño 2026-09-09): como el costo estimado se
+  // persiste en `currentAverageCost`, el subproducto no puede nacer en cero.
+  // El servidor lo revalida porque la UI se puede saltear.
+  const hasZeroCostInput = filledItems.some(
+    (i) =>
+      Number(ingredients.find((ing) => ing.id === i.ingredientId)?.cost ?? 0) <=
+      0,
   );
 
   const validationErrors: string[] = [];
@@ -120,6 +146,10 @@ export function SubproductRecipeForm({
     validationErrors.push("Hay ingredientes duplicados");
   if (selfReferencing)
     validationErrors.push("El ingrediente objetivo no puede ser parte de su propia receta");
+  if (hasZeroCostInput)
+    validationErrors.push(
+      "Todos los ingredientes deben tener costo promedio mayor a cero para guardar el subproducto",
+    );
 
   function resetForm() {
     setIngredientId("");
@@ -246,11 +276,11 @@ export function SubproductRecipeForm({
       <div className="space-y-2">
         <Label>Ingredientes constituyentes</Label>
         {items.map((item, idx) => (
-          <div key={idx} className="grid grid-cols-[1fr_70px_60px_36px] gap-1">
+          <div key={idx} className="grid grid-cols-[1fr_100px_120px_36px] gap-1">
             <Select
               value={item.ingredientId}
               onChange={(e) =>
-                setItems((prev) =>
+                  setItems((prev) =>
                   prev.map((x, i) =>
                     i === idx ? { ...x, ingredientId: e.target.value } : x,
                   ),
@@ -280,11 +310,8 @@ export function SubproductRecipeForm({
               }
               title="Cantidad"
             />
-            <Input
-              type="number"
-              min="0"
-              step="0.1"
-              value={item.wastePercentage}
+            <Select
+              value={String(item.wastePercentage)}
               onChange={(e) =>
                 setItems((prev) =>
                   prev.map((x, i) =>
@@ -294,8 +321,14 @@ export function SubproductRecipeForm({
                   ),
                 )
               }
-              title="% merma"
-            />
+              title="Merma"
+            >
+              {WASTE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
             <Button
               type="button"
               size="icon"
@@ -356,10 +389,30 @@ export function SubproductRecipeForm({
         />
       </div>
 
-      {costPreview ? (
-        <div className="rounded-md bg-muted/50 p-3 text-sm">
-          <span className="text-muted-foreground">Costo estimado: </span>
-          <span className="font-semibold tabular-nums">{costPreview}</span>
+      {costSummary ? (
+        <div className="space-y-1 rounded-md bg-muted/50 p-3 text-sm">
+          <p className="flex items-baseline justify-between gap-2">
+            <span className="text-muted-foreground">Costo total del lote:</span>
+            <span className="shrink-0 font-semibold tabular-nums">
+              {costSummary.batch}
+            </span>
+          </p>
+          <p className="flex items-baseline justify-between gap-2">
+            <span className="text-muted-foreground">Rendimiento:</span>
+            <span className="shrink-0 tabular-nums">{costSummary.yield}</span>
+          </p>
+          <p className="flex items-baseline justify-between gap-2">
+            <span className="text-muted-foreground">
+              Costo estimado por unidad:
+            </span>
+            <span className="shrink-0 font-semibold tabular-nums">
+              {costSummary.unit}
+            </span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Calculado con el costo promedio actual de Inventario. Al guardar se
+            actualiza el costo del subproducto.
+          </p>
         </div>
       ) : null}
 

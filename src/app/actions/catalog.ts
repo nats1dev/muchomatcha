@@ -14,6 +14,9 @@ import {
   saveProductSchema,
   savePurchaseUnitSchema,
   saveSupplierSchema,
+  saveNumberSettingsSchema,
+  saveUnitSchema,
+  toggleUnitSchema,
 } from "./schemas";
 import {
   upsertIngredient,
@@ -24,7 +27,10 @@ import {
   upsertSupplier,
   deactivateProduct,
   deactivateIngredient,
+  createUnit,
+  toggleUnitActive,
 } from "@/modules/catalog/service";
+import { writeAudit } from "@/modules/audit/service";
 
 export async function saveProductAction(
   _prev: unknown,
@@ -228,6 +234,73 @@ export async function saveSupplierAction(
     revalidatePath("/compras");
     revalidatePath("/configuracion");
     return { ok: true, data: { id: supplier.id, name: supplier.name } };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function saveNumberSettingsAction(
+  _prev: unknown,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const user = await requireRole("ADMIN");
+    const input = saveNumberSettingsSchema.parse(formValues(formData));
+    const before = await prisma.business.findFirst({
+      where: { id: user.businessId },
+      select: { numberFormat: true, moneyDecimals: true, costDecimals: true, quantityDecimals: true },
+    });
+    if (!before) throw new Error("Negocio no encontrado");
+    const after = await prisma.$transaction(async (tx) => {
+      const updated = await tx.business.update({
+        where: { id: user.businessId },
+        data: input,
+        select: { numberFormat: true, moneyDecimals: true, costDecimals: true, quantityDecimals: true },
+      });
+      await writeAudit(tx, {
+        businessId: user.businessId,
+        userId: user.id,
+        action: "UPDATE",
+        entityType: "number_display_settings",
+        entityId: user.businessId,
+        beforeData: before,
+        afterData: updated,
+      });
+      return updated;
+    });
+    void after;
+    revalidatePath("/", "layout");
+    return { ok: true };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function saveUnitAction(
+  _prev: unknown,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const user = await requireRole("ADMIN");
+    const input = saveUnitSchema.parse(formValues(formData));
+    await createUnit({ ...input, businessId: user.businessId, userId: user.id });
+    revalidatePath("/configuracion");
+    return { ok: true };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function toggleUnitAction(
+  _prev: unknown,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const user = await requireRole("ADMIN");
+    const input = toggleUnitSchema.parse(formValues(formData));
+    await toggleUnitActive({ ...input, businessId: user.businessId, userId: user.id });
+    revalidatePath("/configuracion");
+    return { ok: true };
   } catch (e) {
     return toActionError(e);
   }

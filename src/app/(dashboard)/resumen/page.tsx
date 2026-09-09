@@ -2,7 +2,8 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { resolvePeriod, type PeriodKey, formatDateTime } from "@/lib/dates";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney as baseFormatMoney } from "@/lib/utils";
+import { getNumberDisplaySettings } from "@/lib/number-format-server";
 import { getDashboard } from "@/modules/dashboard/service";
 import { PageHeader } from "@/components/ui/page-header";
 import { MetricCard } from "@/components/dashboard/metric-card";
@@ -19,6 +20,8 @@ export default async function ResumenPage({
 }) {
   const session = await auth();
   if (!session?.user?.businessId) return null;
+  const numberSettings = await getNumberDisplaySettings(session.user.businessId);
+  const formatMoney = (value: number | string) => baseFormatMoney(value, "GTQ", numberSettings);
 
   const sp = await searchParams;
   const period = (sp.period as PeriodKey) || "today";
@@ -44,7 +47,7 @@ export default async function ResumenPage({
 
       {ingredientCount === 0 ? (
         <div className="mb-4 rounded-[12px] border border-primary/20 bg-primary/5 p-5">
-          <h2 className="text-lg font-semibold">👋 ¡Bienvenido a Café Control!</h2>
+          <h2 className="text-lg font-semibold">👋 ¡Bienvenido!</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Para empezar, configura tus ingredientes y registra tu primer inventario.
             El setup guiado te llevará paso a paso.

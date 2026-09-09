@@ -3,6 +3,7 @@ import {
   confirmCountSchema,
   createAdjustmentSchema,
   createExpenseSchema,
+  createProductionOrderSchema,
   createSaleSchema,
   formValues,
   listProductionOrdersSchema,
@@ -10,9 +11,24 @@ import {
   receivePurchaseSchema,
   saveIngredientSchema,
   saveProductSchema,
+  saveRecipeSchema,
+  saveNumberSettingsSchema,
+  saveUnitSchema,
 } from "@/app/actions/schemas";
 
 const UUID = "3f1e6a3e-0f4a-4a7a-9c2a-2b6d5f0c1111";
+
+describe("preferencias numÃ©ricas y unidades", () => {
+  it("acepta los rangos y normaliza el cÃ³digo", () => {
+    expect(saveNumberSettingsSchema.parse({ numberFormat: "EU", moneyDecimals: "2", costDecimals: "6", quantityDecimals: "0" })).toEqual({ numberFormat: "EU", moneyDecimals: 2, costDecimals: 6, quantityDecimals: 0 });
+    expect(saveUnitSchema.parse({ code: "  OZ ", name: "Onza", decimals: "2" })).toEqual({ code: "oz", name: "Onza", decimals: 2 });
+  });
+
+  it("rechaza estilos y precisiones fuera de rango", () => {
+    expect(() => saveNumberSettingsSchema.parse({ numberFormat: "GT", moneyDecimals: 2, costDecimals: 4, quantityDecimals: 3 })).toThrow();
+    expect(() => saveNumberSettingsSchema.parse({ numberFormat: "US", moneyDecimals: 7, costDecimals: 4, quantityDecimals: 3 })).toThrow();
+  });
+});
 
 describe("validación de la frontera (Fase 2.1)", () => {
   it("acepta un producto válido y convierte el precio de texto a número", () => {
@@ -162,10 +178,68 @@ describe("validación de la frontera (Fase 2.1)", () => {
     expect(listProductionOrdersSchema.parse(undefined)).toBeUndefined();
   });
 
+  it("acepta el filtro de órdenes en progreso y rechaza estados desconocidos", () => {
+    expect(listProductionOrdersSchema.parse({ status: "IN_PROGRESS" })?.status).toBe("IN_PROGRESS");
+    expect(() => listProductionOrdersSchema.parse({ status: "RUNNING" })).toThrow();
+  });
+
+  it("valida los lÃ­mites de paginaciÃ³n de producciÃ³n", () => {
+    expect(listProductionOrdersSchema.parse({ take: "10" })?.take).toBe(10);
+    expect(() => listProductionOrdersSchema.parse({ take: "0" })).toThrow();
+    expect(() => listProductionOrdersSchema.parse({ take: "501" })).toThrow();
+  });
+
+  it("inicia por defecto las nuevas órdenes y permite conservar un borrador", () => {
+    const base = { ingredientId: UUID, quantity: "2" };
+    expect(createProductionOrderSchema.parse(base).startImmediately).toBe(true);
+    expect(createProductionOrderSchema.parse({ ...base, startImmediately: false }).startImmediately).toBe(false);
+    expect(createProductionOrderSchema.parse({ ...base, startImmediately: "false" }).startImmediately).toBe(false);
+  });
+
   it("formValues descarta los archivos del FormData", () => {
     const fd = new FormData();
     fd.set("name", "Matcha");
     fd.set("image", new File(["x"], "foto.png", { type: "image/png" }));
     expect(formValues(fd)).toEqual({ name: "Matcha" });
+  });
+
+  it("la merma de receta solo acepta enteros de 0 a 20 (REQ-03)", () => {
+    const base = { productId: UUID, items: [{ ingredientId: UUID, quantity: 1 }] };
+    expect(() =>
+      saveRecipeSchema.parse({
+        ...base,
+        items: [{ ingredientId: UUID, quantity: 1, wastePercentage: 5 }],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      saveRecipeSchema.parse({
+        ...base,
+        items: [{ ingredientId: UUID, quantity: 1, wastePercentage: 0 }],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      saveRecipeSchema.parse({
+        ...base,
+        items: [{ ingredientId: UUID, quantity: 1, wastePercentage: 20 }],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      saveRecipeSchema.parse({
+        ...base,
+        items: [{ ingredientId: UUID, quantity: 1, wastePercentage: 21 }],
+      }),
+    ).toThrow();
+    expect(() =>
+      saveRecipeSchema.parse({
+        ...base,
+        items: [{ ingredientId: UUID, quantity: 1, wastePercentage: 2.5 }],
+      }),
+    ).toThrow();
+    expect(() =>
+      saveRecipeSchema.parse({
+        ...base,
+        items: [{ ingredientId: UUID, quantity: 1, wastePercentage: -1 }],
+      }),
+    ).toThrow();
   });
 });

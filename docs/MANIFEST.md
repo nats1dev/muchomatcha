@@ -16,6 +16,7 @@ recorrer el proyecto entero.
 | DOC-08 | `docs/JOURNEY.md` | Flujo punta a punta en 12 pasos | Necesitas contexto operativo | Cambia el flujo (ej. nuevo estado de orden) |
 | DOC-09 | `docs/MANTENIMIENTO.md` | Regla de actualización de docs | Terminaste un cambio | Cambia el proceso de trabajo |
 | DOC-10 | `docs/IMPLEMENTACION.md` | Plan de puesta en producción por fases, con estado y bitácora | Vas a trabajar en el piloto o quieres saber qué falta para producción | **Cada vez que avanzas una subfase**: marca la casilla y añade línea en la bitácora |
+| DOC-11 | `docs/IMPORTACION.md` | Formato CSV aceptado hoy + plantillas `plantillas/` (Fase A) | Vas a cargar datos masivos o generar plantillas | Cambia el importador (`csv-import.ts`, `importer.ts`) o las plantillas |
 | EXT-01 | `MVP.md` (raíz) | Especificación fuente del MVP | Necesitas el texto original | Solo con cambio de alcance aprobado |
 | EXT-02 | `Desarrollo.md` (raíz) | Plan inicial por fases | Contexto histórico | No se actualiza (histórico) |
 | EXT-03 | `UserJourney-v0001.md` (raíz) | Journey + roadmap producción | Detalle de gaps/roadmap | Se completa una fase del roadmap |

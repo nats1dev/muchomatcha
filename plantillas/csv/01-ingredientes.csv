@@ -1,0 +1,11 @@
+﻿name,sku,baseUnit,category,minStock,purchaseUnit,conversionFactor
+Leche entera,ING-LECHE,ml,Lácteos,5000,l,1000
+Leche vegetal,ING-LECHEV,ml,Lácteos,2000,l,1000
+Matcha ceremonial,ING-MATCHA,g,Tés,200,kg,1000
+Matcha culinario,ING-MATCHAC,g,Tés,300,kg,1000
+Café molido,ING-CAFE,g,Tés,1000,kg,1000
+Azúcar,ING-AZUCAR,g,Endulzantes,2000,kg,1000
+Miel,ING-MIEL,ml,Endulzantes,500,l,1000
+Hielo,ING-HIELO,g,Otros,5000,kg,1000
+Vaso 12oz,ING-VASO12,u,Empaques,100,u,1
+Fresas,ING-FRESAS,g,Otros,1000,kg,1000

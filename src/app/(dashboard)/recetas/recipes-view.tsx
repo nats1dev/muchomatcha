@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { formatMoney } from "@/lib/utils";
+import { useNumberFormatter } from "@/components/number-format-provider";
 import { RecipeForm } from "./recipe-form";
 
 type RecipeRow = {
@@ -45,6 +45,7 @@ export function RecipesView({
     cost: number;
   }>;
 }) {
+  const { formatMoney } = useNumberFormatter();
   const [editingRecipeId, setEditingRecipeId] = useState<string | null>(null);
   const activeRecipeIds = new Set(recipes.map((r) => r.productId).filter(Boolean) as string[]);
 

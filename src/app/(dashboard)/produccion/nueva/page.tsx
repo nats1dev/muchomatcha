@@ -1,13 +1,12 @@
-import { auth } from "@/auth";
 import { listManufacturedIngredients } from "@/modules/production/service";
+import { requirePageRole } from "@/lib/auth/session";
 import { PageHeader } from "@/components/ui/page-header";
 import { ProductionForm } from "@/components/production/production-form";
 
 export default async function NuevaProduccionPage() {
-  const session = await auth();
-  if (!session?.user?.businessId) return null;
+  const session = await requirePageRole("CASHIER");
 
-  const subproducts = await listManufacturedIngredients(session.user.businessId);
+  const subproducts = await listManufacturedIngredients(session.businessId);
 
   return (
     <div className="max-w-2xl">

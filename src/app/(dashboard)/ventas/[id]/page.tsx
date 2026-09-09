@@ -4,7 +4,8 @@ import { auth } from "@/auth";
 import { hasAtLeast, isRoleName } from "@/lib/auth/roles";
 import { prisma } from "@/lib/db";
 import { formatDateTime } from "@/lib/dates";
-import { formatMoney, formatQty } from "@/lib/utils";
+import { formatMoney as baseFormatMoney, formatQty as baseFormatQty } from "@/lib/utils";
+import { getNumberDisplaySettings } from "@/lib/number-format-server";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +19,9 @@ export default async function VentaDetallePage({
 }) {
   const session = await auth();
   if (!session?.user?.businessId) return null;
+  const numberSettings = await getNumberDisplaySettings(session.user.businessId);
+  const formatMoney = (value: number | string) => baseFormatMoney(value, "GTQ", numberSettings);
+  const formatQty = (value: number | string, decimals?: number) => baseFormatQty(value, decimals, numberSettings);
   const role = isRoleName(session.user.role) ? session.user.role : "VIEWER";
   const canVoid = hasAtLeast(role, "ADMIN");
   const { id } = await params;

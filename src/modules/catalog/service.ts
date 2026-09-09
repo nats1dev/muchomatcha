@@ -30,18 +30,36 @@ export async function upsertProductCategory(params: {
     return updated;
   }
 
-  const created = await prisma.productCategory.create({
-    data: { businessId: params.businessId, name },
+  // Idempotente (DEC-19): el importador CSV llama sin `id` una vez por fila;
+  // sin este pre-chequeo la segunda fila con igual categoria violaba el
+  // unico [businessId,name]. El `catch P2002` cubre la carrera concurrente.
+  const existing = await prisma.productCategory.findFirst({
+    where: { businessId: params.businessId, name: { equals: name, mode: "insensitive" } },
   });
-  await writeAudit(prisma, {
-    businessId: params.businessId,
-    userId: params.userId,
-    action: "CREATE",
-    entityType: "product_category",
-    entityId: created.id,
-    afterData: created,
-  });
-  return created;
+  if (existing) return existing;
+
+  try {
+    const created = await prisma.productCategory.create({
+      data: { businessId: params.businessId, name },
+    });
+    await writeAudit(prisma, {
+      businessId: params.businessId,
+      userId: params.userId,
+      action: "CREATE",
+      entityType: "product_category",
+      entityId: created.id,
+      afterData: created,
+    });
+    return created;
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      const raced = await prisma.productCategory.findFirst({
+        where: { businessId: params.businessId, name },
+      });
+      if (raced) return raced;
+    }
+    throw e;
+  }
 }
 
 export async function upsertProduct(params: {
@@ -168,18 +186,34 @@ export async function upsertIngredientCategory(params: {
     });
     return updated;
   }
-  const created = await prisma.ingredientCategory.create({
-    data: { businessId: params.businessId, name },
+  // Idempotente (DEC-19): ver `upsertProductCategory` arriba.
+  const existing = await prisma.ingredientCategory.findFirst({
+    where: { businessId: params.businessId, name: { equals: name, mode: "insensitive" } },
   });
-  await writeAudit(prisma, {
-    businessId: params.businessId,
-    userId: params.userId,
-    action: "CREATE",
-    entityType: "ingredient_category",
-    entityId: created.id,
-    afterData: created,
-  });
-  return created;
+  if (existing) return existing;
+
+  try {
+    const created = await prisma.ingredientCategory.create({
+      data: { businessId: params.businessId, name },
+    });
+    await writeAudit(prisma, {
+      businessId: params.businessId,
+      userId: params.userId,
+      action: "CREATE",
+      entityType: "ingredient_category",
+      entityId: created.id,
+      afterData: created,
+    });
+    return created;
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      const raced = await prisma.ingredientCategory.findFirst({
+        where: { businessId: params.businessId, name },
+      });
+      if (raced) return raced;
+    }
+    throw e;
+  }
 }
 
 export async function upsertIngredient(params: {
@@ -474,6 +508,12 @@ export async function upsertSupplier(params: {
   }
   const created = await prisma.supplier.create({
     data: { ...data, businessId: params.businessId },
+  }).catch((e) => {
+    // Sin mapeo, el duplicado [businessId,name] burbujea como INTERNAL_ERROR.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      throw new AppError(`El proveedor "${name}" ya existe`, { code: "DUPLICATE_SUPPLIER" });
+    }
+    throw e;
   });
   await writeAudit(prisma, {
     businessId: params.businessId,
@@ -506,4 +546,63 @@ export async function ensureDefaultUnits(businessId: string) {
     where: { businessId, active: true },
     orderBy: { code: "asc" },
   });
+}
+
+export async function createUnit(params: {
+  businessId: string;
+  userId: string;
+  code: string;
+  name: string;
+  decimals: number;
+}) {
+  const code = params.code.trim().toLowerCase();
+  const duplicate = await prisma.unit.findFirst({
+    where: {
+      businessId: params.businessId,
+      code: { equals: code, mode: "insensitive" },
+    },
+  });
+  if (duplicate) throw new AppError("Ya existe una unidad con ese c\u00f3digo", { code: "UNIT_CODE_EXISTS" });
+  const created = await prisma.unit.create({
+    data: {
+      businessId: params.businessId,
+      code,
+      name: params.name.trim(),
+      decimals: params.decimals,
+    },
+  });
+  await writeAudit(prisma, {
+    businessId: params.businessId,
+    userId: params.userId,
+    action: "CREATE",
+    entityType: "unit",
+    entityId: created.id,
+    afterData: created,
+  });
+  return created;
+}
+
+export async function toggleUnitActive(params: {
+  businessId: string;
+  userId: string;
+  id: string;
+}) {
+  const existing = await prisma.unit.findFirst({
+    where: { id: params.id, businessId: params.businessId },
+  });
+  if (!existing) throw new AppError("Unidad no encontrada", { code: "UNIT_NOT_FOUND", status: 404 });
+  const updated = await prisma.unit.update({
+    where: { id: existing.id },
+    data: { active: !existing.active },
+  });
+  await writeAudit(prisma, {
+    businessId: params.businessId,
+    userId: params.userId,
+    action: updated.active ? "REACTIVATE" : "DEACTIVATE",
+    entityType: "unit",
+    entityId: updated.id,
+    beforeData: existing,
+    afterData: updated,
+  });
+  return updated;
 }

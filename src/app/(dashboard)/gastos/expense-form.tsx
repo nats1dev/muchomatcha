@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import { createExpenseAction } from "@/app/actions/operations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { LocalizedNumberInput } from "@/components/ui/localized-number-input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -62,11 +63,11 @@ export function ExpenseForm({
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1.5">
           <Label>Subtotal</Label>
-          <Input name="subtotal" type="number" step="0.01" min="0" required />
+          <LocalizedNumberInput name="subtotal" decimals={2} step="0.01" min="0" required />
         </div>
         <div className="space-y-1.5">
           <Label>IVA</Label>
-          <Input name="taxTotal" type="number" step="0.01" min="0" defaultValue="0" />
+          <LocalizedNumberInput name="taxTotal" decimals={2} step="0.01" min="0" defaultValue="0" />
         </div>
       </div>
       <div className="space-y-1.5">

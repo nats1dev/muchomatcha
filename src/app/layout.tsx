@@ -1,16 +1,9 @@
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
 import { Providers } from "@/components/providers";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-  display: "swap",
-});
-
 export const metadata: Metadata = {
-  title: "Café Control — Mucho Matcha",
+  title: "Mucho Matcha",
   description: "Control operativo y financiero de cafetería",
 };
 
@@ -26,7 +19,7 @@ export default function RootLayout({
     // React hidrate, y esa diferencia no es un error de la aplicacion.
     <html
       lang="es"
-      className={`${geistSans.variable} h-full antialiased`}
+      className="h-full antialiased"
       suppressHydrationWarning
     >
       <body

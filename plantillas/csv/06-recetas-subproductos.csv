@@ -1,0 +1,5 @@
+﻿subproductSku,ingredientSku,quantity,wastePercentage,nonInventoriable,yieldQuantity,notes
+SUB-JALEA,ING-FRESAS,600,5,,1000,
+SUB-JALEA,ING-AZUCAR,300,0,,1000,
+SUB-JALEA,ING-AGUA,100,0,,1000,
+SUB-JALEA,ING-GAS,0.1,0,,1000,

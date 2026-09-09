@@ -9,6 +9,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SupplierForm } from "./supplier-form";
 import { PurchaseUnitForm } from "./purchase-unit-form";
 import { ChangePasswordForm } from "./change-password-form";
+import { NumberSettingsForm } from "./number-settings-form";
+import { UnitForm, UnitToggle } from "./unit-form";
+import { hasAtLeast, isRoleName } from "@/lib/auth/roles";
 
 export default async function ConfiguracionPage() {
   const session = await auth();
@@ -22,7 +25,7 @@ export default async function ConfiguracionPage() {
       orderBy: { name: "asc" },
     }),
     prisma.unit.findMany({
-      where: { businessId, active: true },
+      where: { businessId },
       orderBy: { code: "asc" },
     }),
     prisma.ingredient.findMany({
@@ -34,6 +37,8 @@ export default async function ConfiguracionPage() {
       orderBy: { name: "asc" },
     }),
   ]);
+  const role = isRoleName(session.user.role) ? session.user.role : "VIEWER";
+  const canManage = hasAtLeast(role, "ADMIN");
 
   return (
     <div>
@@ -50,6 +55,12 @@ export default async function ConfiguracionPage() {
         }
       />
       <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader><CardTitle>Formato num&eacute;rico</CardTitle></CardHeader>
+          <CardContent>
+            {canManage ? <NumberSettingsForm initial={{ numberFormat: business.numberFormat as "US" | "EU", moneyDecimals: business.moneyDecimals, costDecimals: business.costDecimals, quantityDecimals: business.quantityDecimals }} /> : <p className="text-sm text-muted-foreground">Solo un encargado puede modificar esta configuraci&oacute;n.</p>}
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader>
             <CardTitle>Negocio</CardTitle>
@@ -87,13 +98,14 @@ export default async function ConfiguracionPage() {
               {units.map((u) => (
                 <li
                   key={u.id}
-                  className="flex justify-between rounded-[10px] border border-border px-3 py-2"
+                  className="flex items-center justify-between rounded-[10px] border border-border px-3 py-2"
                 >
-                  <span className="font-medium">{u.code}</span>
-                  <span className="text-muted-foreground">{u.name}</span>
+                  <div><span className="font-medium">{u.code}</span><span className="ml-2 text-muted-foreground">{u.name} &middot; {u.decimals} dec.</span>{!u.active ? <span className="ml-2 text-xs text-muted-foreground">Inactiva</span> : null}</div>
+                  {canManage ? <UnitToggle id={u.id} active={u.active} /> : null}
                 </li>
               ))}
             </ul>
+            {canManage ? <UnitForm defaultDecimals={business.quantityDecimals} /> : null}
           </CardContent>
         </Card>
 
@@ -143,7 +155,7 @@ export default async function ConfiguracionPage() {
                 id: i.id,
                 name: i.name,
               }))}
-              units={units.map((u) => ({
+              units={units.filter((u) => u.active).map((u) => ({
                 id: u.id,
                 code: u.code,
                 name: u.name,

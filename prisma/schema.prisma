@@ -96,6 +96,10 @@ model Business {
   currency  String   @default("GTQ")
   timezone  String   @default("America/Guatemala")
   taxRate   Decimal  @default(12) @map("tax_rate") @db.Decimal(5, 2)
+  numberFormat     String @default("US") @map("number_format")
+  moneyDecimals    Int    @default(2) @map("money_decimals")
+  costDecimals     Int    @default(4) @map("cost_decimals")
+  quantityDecimals Int    @default(3) @map("quantity_decimals")
   active    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz

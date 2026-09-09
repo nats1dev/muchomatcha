@@ -40,7 +40,7 @@ Los documentos son parte del cambio, no un pendiente posterior.
 
 | Decisión | Valor | Consecuencia |
 |---|---|---|
-| Despliegue | Vercel + Supabase | Imágenes fuera de `public/`; hace falta `DIRECT_URL` |
+| Despliegue | Railway + Supabase | Servidor Node persistente; las imágenes requieren Volume o Storage |
 | Tenancy | Un solo negocio | Aislamiento multi-tenant se difiere a post-piloto |
 | Roles | Dueño + cajeros + solo lectura | `requireRole` con 3 niveles es bloqueante |
 | Datos | De cero + demo verificable | Sin backfill; caso testigo = Cappuccino (BEB-006) |
@@ -76,7 +76,7 @@ copiar no es una garantía; un índice único sí lo es.
 - [x] Proxy (`src/proxy.ts`) reconocido por el build
 - [x] `migrate reset` + `migrate deploy` aplicados contra Supabase real
 - [x] Seed demo ejecutado (79 s): 1 negocio, usuario OWNER, Cappuccino presente
-- [ ] **Pendiente:** desplegar en Vercel y configurar variables de entorno allí
+- [ ] **Pendiente:** desplegar en Railway y configurar variables de entorno allí
       (`DATABASE_URL`, `DIRECT_URL`, `AUTH_SECRET` nuevo, `AUTH_URL`)
 
 **Criterio de salida:** ✅ desde base vacía, `migrate deploy` + `build` producen una app que arranca.
@@ -96,7 +96,7 @@ copiar no es una garantía; un índice único sí lo es.
       host (`.env.example`), no la contraseña: `.env` nunca se committeó y sigue en
       `.gitignore`. Con datos de solo demo y sin usuarios reales, el riesgo es bajo.
       **Debe hacerse antes de cargar el catálogo real y de repartir accesos del
-      piloto** — al hacerlo en 5.3 se actualizan `.env` y las variables de Vercel de
+      piloto** — al hacerlo en 5.3 se actualizan `.env` y las variables de Railway de
       una sola vez. Ver el procedimiento en 5.3.
 
 ### 1.2 Roles — `[x]`
@@ -135,7 +135,7 @@ copiar no es una garantía; un índice único sí lo es.
       lógica en `src/lib/auth/rate-limit.ts`
 - [x] Contador **persistido** en la tabla `login_attempts` (migración
       `20260909210000_login_attempts`, aplicada con `prisma migrate deploy`):
-      en Vercel un contador en memoria no limita nada, cada petición puede caer
+      en un despliegue con varias instancias un contador en memoria no limita nada, cada petición puede caer
       en otra instancia
 - [x] Verificar siempre un hash (dummy si el usuario no existe o está inactivo)
       para no filtrar qué cuentas existen por diferencia de latencia
@@ -227,7 +227,7 @@ abrir caja dos veces falla con mensaje claro; doble anulación no duplica revers
 ## Fase 4 — Almacenamiento y endurecimiento ⬜
 
 ### 4.1 Imágenes a Supabase Storage — `[ ]`
-- [ ] Reescribir `saveUpload` sobre Supabase Storage (en Vercel `public/` no persiste)
+- [ ] Reescribir `saveUpload` sobre Supabase Storage (en Railway usar Volume mientras tanto)
 - [ ] Extensión derivada del MIME real, nunca de `file.name` (hoy: XSS almacenado)
 - [ ] `catalog.ts`: `findUnique({id})` → filtrar también por `businessId`
 
@@ -251,7 +251,7 @@ abrir caja dos veces falla con mensaje claro; doble anulación no duplica revers
 
 ### 5.1 Observabilidad — `[ ]`
 - [ ] Log estructurado en `toActionError` (usuario, acción, código)
-- [ ] Sentry o logging de Vercel
+- [ ] Sentry o logging de Railway
 - [ ] Verificar que `audit_log` se puebla en los flujos críticos
 
 ### 5.2 Respaldos — `[ ]`
@@ -267,7 +267,7 @@ abrir caja dos veces falla con mensaje claro; doble anulación no duplica revers
       2. Copiar las dos cadenas de conexión ya con la clave nueva:
          transaction pooler (`:6543`) → `DATABASE_URL`; session pooler (`:5432`)
          → `DIRECT_URL`. Codificar en URL los caracteres especiales (`@` → `%40`).
-      3. Actualizar `.env` local **y** las variables de entorno en Vercel; redeploy.
+      3. Actualizar `.env` local **y** las variables de entorno en Railway; redeploy.
       4. Verificar con `npx prisma migrate status` → "Database schema is up to date!".
 - [ ] Reset limpio (sin datos demo) antes de entregar
 - [ ] Cargar catálogo y precios reales
@@ -336,3 +336,7 @@ Decisiones conscientes, no olvidos:
 | 2026-09-09 | 1.4 | Límite de intentos de login: 5 por (correo, IP) cada 15 min, persistido en `login_attempts` (migración `20260909210000_login_attempts` aplicada en Supabase). Se descartó el contador en memoria: en serverless cada petición puede caer en otra instancia. Añadida la verificación de un hash *dummy* cuando el correo no existe, que cierra la fuga por latencia. Nueva **DEC-17**. `npm run typecheck` → 0 errores; `npm run lint` → 0 errores. |
 | 2026-09-09 | 2.1 | Validación de la frontera: `src/app/actions/schemas.ts` (33 esquemas) y las tres actions restantes parsean `payload: unknown` antes de llamar al dominio. `toActionError` traduce `ZodError` a `fieldErrors`. Efecto lateral útil: Zod descarta los campos ajenos al esquema, que antes se propagaban al servicio por *spread*. Nueva **DEC-18** y `tests/unit/schemas.test.ts` (14 casos). `npm test` 20 ✅, typecheck, lint y build correctos. |
 | 2026-09-09 | docs | Detectadas dos divergencias doc↔código, anotadas en `DECISIONES.md`: **DEC-05** declara un índice único parcial de caja que no existe (lo crea la Fase 2.2), y **DEC-10** dice que los subproductos no se anidan mientras el código resuelve hasta 3–4 niveles. `MAPA-REPO.md` afirmaba que las actions validan con Zod: hoy solo lo hacen 2 de 5 (lo completa la Fase 2.1). |
+| 2026-09-09 | producción | Flujo de órdenes reforzado: creación+inicio opcional en una transacción, transiciones idempotentes ante concurrencia, numeración con reintento, preview de stock/costo, permisos por rol, reversa controlada de completadas y recálculo del costo desde el kardex. `npm test` (34 unitarias) y `npm run typecheck` pasan; integración pendiente por disponibilidad de `DATABASE_URL`. |
+| 2026-09-09 | deploy | Preparado para Railway + Supabase: inicio con `next start`, `db:migrate:deploy` para Pre-deploy Command y `UPLOAD_DIR` opcional para Volume persistente. |
+| 2026-09-09 | deploy | Se eliminó la descarga de Google Fonts durante `next build`; la tipografía usa la pila del sistema para que el build no dependa de red externa. |
+| 2026-09-09 | interfaz | Se sustituyó la marca textual por `public/logo-oficial.png` en login y navegación lateral; el título de la aplicación quedó como “Mucho Matcha”. |

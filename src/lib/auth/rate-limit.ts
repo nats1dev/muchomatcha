@@ -3,9 +3,9 @@ import { prisma } from "@/lib/db";
 /**
  * Limite de intentos de inicio de sesion por (correo, IP).
  *
- * Se persiste en la base y no en memoria a proposito: en Vercel cada peticion
- * puede caer en una instancia distinta (y las funciones se reciclan), asi que
- * un contador en memoria no limita nada real.
+ * Se persiste en la base y no en memoria a proposito: en despliegues con varias
+ * instancias cada peticion puede caer en otro proceso, asi que un contador en
+ * memoria no limita nada real.
  */
 export const MAX_LOGIN_ATTEMPTS = 5;
 export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
@@ -24,7 +24,7 @@ export function dummyPasswordHash() {
 }
 
 /**
- * IP del cliente. Detras del proxy de Vercel la unica fuente es la cabecera
+ * IP del cliente. Detras del proxy de Railway la unica fuente es la cabecera
  * `x-forwarded-for`; el primer valor es el cliente original.
  */
 export function clientIpFrom(headers: Headers): string {

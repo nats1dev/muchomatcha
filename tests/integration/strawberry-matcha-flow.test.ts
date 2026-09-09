@@ -8,7 +8,7 @@ process.env.PRISMA_TX_MAX_WAIT = "15000";
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { prisma } from "@/lib/db";
-import { PaymentMethod, PaymentStatus, SaleStatus, ProductionStatus } from "@prisma/client";
+import { MovementType, PaymentMethod, PaymentStatus, SaleStatus, ProductionStatus } from "@prisma/client";
 import { calculateSaleTotals } from "@/modules/sales/totals";
 import { getIngredientStock } from "@/modules/inventory/stock";
 import {
@@ -26,6 +26,7 @@ import {
   createProductionOrder,
   startProductionOrder,
   completeProductionOrder,
+  cancelProductionOrder,
 } from "@/modules/production/service";
 import { openCashSession, closeCashSession } from "@/modules/cash/service";
 import { createSale } from "@/modules/sales/service";
@@ -386,5 +387,164 @@ describe("Flujo completo Strawberry Matcha", () => {
 
     expect(closed.status).toBe("CLOSED");
     expect(Number(closed.countedAmount)).toBe(countedAmount);
+  });
+
+  it("13. Asigna números distintos cuando se crean órdenes en paralelo", { timeout: 30000 }, async () => {
+    const [first, second] = await Promise.all([
+      createProductionOrder({
+        businessId: ctx.businessId,
+        userId: ctx.userId,
+        ingredientId: jaleaIngredientId,
+        quantity: 1,
+      }),
+      createProductionOrder({
+        businessId: ctx.businessId,
+        userId: ctx.userId,
+        ingredientId: jaleaIngredientId,
+        quantity: 1,
+      }),
+    ]);
+
+    expect(first.order.orderNumber).not.toBe(second.order.orderNumber);
+    expect(first.order.status).toBe(ProductionStatus.DRAFT);
+    expect(second.order.status).toBe(ProductionStatus.DRAFT);
+
+    const immediate = await createProductionOrder({
+      businessId: ctx.businessId,
+      userId: ctx.userId,
+      ingredientId: jaleaIngredientId,
+      quantity: 1,
+      startImmediately: true,
+    });
+    expect(immediate.order.status).toBe(ProductionStatus.IN_PROGRESS);
+    const completed = await completeProductionOrder({
+      businessId: ctx.businessId,
+      userId: ctx.userId,
+      orderId: immediate.order.id,
+    });
+    expect(completed.status).toBe(ProductionStatus.COMPLETED);
+  });
+
+  it("14. Completar dos veces en paralelo solo genera un lote de movimientos", { timeout: 30000 }, async () => {
+    const created = await createProductionOrder({
+      businessId: ctx.businessId,
+      userId: ctx.userId,
+      ingredientId: jaleaIngredientId,
+      quantity: 1,
+    });
+    await startProductionOrder({
+      businessId: ctx.businessId,
+      userId: ctx.userId,
+      orderId: created.order.id,
+    });
+
+    const results = await Promise.allSettled([
+      completeProductionOrder({ businessId: ctx.businessId, userId: ctx.userId, orderId: created.order.id }),
+      completeProductionOrder({ businessId: ctx.businessId, userId: ctx.userId, orderId: created.order.id }),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+
+    const movements = await prisma.inventoryMovement.count({
+      where: { businessId: ctx.businessId, referenceType: "production", referenceId: created.order.id },
+    });
+    expect(movements).toBe(created.items.length + 1);
+  });
+
+  it("15. Anular una producción completa revierte movimientos e idempotentemente no repite la reversa", { timeout: 30000 }, async () => {
+    const created = await createProductionOrder({
+      businessId: ctx.businessId,
+      userId: ctx.userId,
+      ingredientId: jaleaIngredientId,
+      quantity: 1,
+    });
+    await startProductionOrder({ businessId: ctx.businessId, userId: ctx.userId, orderId: created.order.id });
+    const completed = await completeProductionOrder({
+      businessId: ctx.businessId,
+      userId: ctx.userId,
+      orderId: created.order.id,
+      actualQuantity: 0.8,
+    });
+    expect(Number(completed.actualQuantity)).toBeCloseTo(0.8, 3);
+    const cancelled = await cancelProductionOrder({
+      businessId: ctx.businessId,
+      userId: ctx.userId,
+      orderId: created.order.id,
+      reason: "Prueba de reversa controlada",
+    });
+    expect(cancelled.status).toBe(ProductionStatus.CANCELLED);
+
+    const reversalCount = await prisma.inventoryMovement.count({
+      where: { businessId: ctx.businessId, referenceType: "production_cancel", referenceId: created.order.id },
+    });
+    expect(reversalCount).toBe(created.items.length + 1);
+    const secondCancel = await cancelProductionOrder({
+      businessId: ctx.businessId,
+      userId: ctx.userId,
+      orderId: created.order.id,
+      reason: "Segundo intento",
+    });
+    expect(secondCancel.status).toBe(ProductionStatus.CANCELLED);
+    expect(completed.status).toBe(ProductionStatus.COMPLETED);
+  });
+
+  it("16. Stock insuficiente no cambia el estado ni crea movimientos", { timeout: 30000 }, async () => {
+    const created = await createProductionOrder({
+      businessId: ctx.businessId,
+      userId: ctx.userId,
+      ingredientId: jaleaIngredientId,
+      quantity: 999999,
+    });
+    await startProductionOrder({ businessId: ctx.businessId, userId: ctx.userId, orderId: created.order.id });
+
+    await expect(
+      completeProductionOrder({ businessId: ctx.businessId, userId: ctx.userId, orderId: created.order.id }),
+    ).rejects.toThrow(/Stock insuficiente/);
+
+    const persisted = await prisma.productionOrder.findUnique({ where: { id: created.order.id } });
+    expect(persisted?.status).toBe(ProductionStatus.IN_PROGRESS);
+    const movements = await prisma.inventoryMovement.count({
+      where: { businessId: ctx.businessId, referenceType: "production", referenceId: created.order.id },
+    });
+    expect(movements).toBe(0);
+  });
+
+  it("17. No permite anular si el subproducto ya no tiene existencia suficiente", { timeout: 30000 }, async () => {
+    const created = await createProductionOrder({
+      businessId: ctx.businessId,
+      userId: ctx.userId,
+      ingredientId: jaleaIngredientId,
+      quantity: 1,
+    });
+    await startProductionOrder({ businessId: ctx.businessId, userId: ctx.userId, orderId: created.order.id });
+    const completed = await completeProductionOrder({ businessId: ctx.businessId, userId: ctx.userId, orderId: created.order.id });
+    const stock = await getIngredientStock(ctx.businessId, jaleaIngredientId);
+    await prisma.inventoryMovement.create({
+      data: {
+        businessId: ctx.businessId,
+        ingredientId: jaleaIngredientId,
+        movementType: MovementType.SALE,
+        quantityDelta: stock.plus(1).neg().toFixed(3),
+        unitCost: completed.unitCost,
+        referenceType: "test_consume",
+        reason: "Consumo total de prueba",
+        userId: ctx.userId,
+      },
+    });
+
+    await expect(
+      cancelProductionOrder({
+        businessId: ctx.businessId,
+        userId: ctx.userId,
+        orderId: created.order.id,
+        reason: "Debe bloquearse por stock insuficiente",
+      }),
+    ).rejects.toThrow(/No se puede anular/);
+    const persisted = await prisma.productionOrder.findUnique({ where: { id: created.order.id } });
+    expect(persisted?.status).toBe(ProductionStatus.COMPLETED);
+    const reversals = await prisma.inventoryMovement.count({
+      where: { businessId: ctx.businessId, referenceType: "production_cancel", referenceId: created.order.id },
+    });
+    expect(reversals).toBe(0);
   });
 });

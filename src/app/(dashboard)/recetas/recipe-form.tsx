@@ -4,8 +4,13 @@ import { useState, useTransition, useMemo, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import { Plus, Trash2, AlertTriangle, Search } from "lucide-react";
 import { saveRecipeAction } from "@/app/actions/operations";
-import { calculateRecipeUnitCost } from "@/modules/recipes/cost";
-import { formatMoney } from "@/lib/utils";
+import {
+  calculateRecipeLineCost,
+  calculateRecipeUnitCost,
+} from "@/modules/recipes/cost";
+import { d } from "@/lib/decimal";
+import { WASTE_OPTIONS, normalizeWastePercentage } from "@/lib/waste";
+import { useNumberFormatter } from "@/components/number-format-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,11 +47,13 @@ export function RecipeForm({
   onSaved,
 }: {
   products: Array<{ id: string; name: string; salePrice: number }>;
+  // cost = costo promedio por unidad base (currentAverageCost). Solo lectura en Recetas.
   ingredients: Array<{ id: string; name: string; unit: string; cost: number }>;
   initialData?: InitialData;
   productsWithRecipeIds?: Set<string>;
   onSaved?: () => void;
 }) {
+  const { formatMoney } = useNumberFormatter();
   const editing = !!initialData?.recipeId;
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -66,7 +73,7 @@ export function RecipeForm({
       ? initialData.items.map((i) => ({
           ingredientId: i.ingredientId,
           quantity: i.quantity,
-          wastePercentage: i.wastePercentage,
+          wastePercentage: normalizeWastePercentage(i.wastePercentage),
           isNonInventoriable: i.isNonInventoriable ?? false,
         }))
       : [
@@ -120,10 +127,43 @@ export function RecipeForm({
     return dups;
   }, [filledItems]);
 
-  const costPreview = useMemo(() => {
+  const lineDetails = useMemo(
+    () =>
+      items.map((item, idx) => {
+        const ing = ingredients.find((i) => i.id === item.ingredientId);
+        const averageCost = ing?.cost ?? 0;
+        const unit = ing?.unit ?? "unidad";
+        let contribution: string | null = null;
+        if (yieldQuantity > 0) {
+          try {
+            const line = calculateRecipeLineCost({
+              quantity: item.quantity,
+              wastePercentage: item.wastePercentage,
+              averageCost,
+              yieldQuantity,
+            });
+            contribution = formatMoney(Number(line.unitContribution));
+          } catch {
+            contribution = null;
+          }
+        }
+        return {
+          averageCost,
+          unit,
+          contribution,
+          hasZeroCost: Number(averageCost) === 0,
+          selectId: `recipe-ingredient-${idx}`,
+          qtyId: `recipe-qty-${idx}`,
+          wasteId: `recipe-waste-${idx}`,
+        };
+      }),
+    [items, ingredients, yieldQuantity, formatMoney],
+  );
+
+  const costSummary = useMemo(() => {
     if (!filledItems.length || yieldQuantity <= 0) return null;
     try {
-      const cost = calculateRecipeUnitCost(
+      const unit = calculateRecipeUnitCost(
         filledItems.map((i) => ({
           quantity: i.quantity,
           wastePercentage: i.wastePercentage,
@@ -132,11 +172,16 @@ export function RecipeForm({
         })),
         yieldQuantity,
       );
-      return formatMoney(Number(cost));
+      const batch = d(unit).mul(d(yieldQuantity));
+      return {
+        unit: formatMoney(Number(unit)),
+        batch: formatMoney(Number(batch)),
+        yield: yieldQuantity,
+      };
     } catch {
       return null;
     }
-  }, [filledItems, yieldQuantity, ingredients]);
+  }, [filledItems, yieldQuantity, ingredients, formatMoney]);
 
   const validationErrors: string[] = [];
   if (!productId) validationErrors.push("Selecciona un producto");
@@ -266,85 +311,164 @@ export function RecipeForm({
       </div>
       <div className="space-y-2">
         <Label>Ingredientes</Label>
-        {items.map((item, idx) => (
-          <div key={idx} className="grid grid-cols-[1fr_70px_60px_36px] gap-1">
-            <Select
-              value={item.ingredientId}
-              onChange={(e) =>
-                setItems((prev) =>
-                  prev.map((x, i) =>
-                    i === idx ? { ...x, ingredientId: e.target.value } : x,
-                  ),
-                )
-              }
+        {items.map((item, idx) => {
+          const detail = lineDetails[idx];
+          return (
+            <div
+              key={idx}
+              className={`space-y-2 rounded-[10px] border p-2.5 ${
+                detail.hasZeroCost
+                  ? "border-warning/40 bg-warning/5"
+                  : "border-border"
+              }`}
             >
-              {ingredients.map((ing) => (
-                <option key={ing.id} value={ing.id}>
-                  {ing.name} ({ing.unit})
-                </option>
-              ))}
-            </Select>
-            <Input
-              type="number"
-              min="0"
-              step="0.001"
-              value={item.quantity}
-              onChange={(e) =>
-                setItems((prev) =>
-                  prev.map((x, i) =>
-                    i === idx
-                      ? { ...x, quantity: Number(e.target.value) }
-                      : x,
-                  ),
-                )
-              }
-              title="Cantidad"
-            />
-            <Input
-              type="number"
-              min="0"
-              step="0.1"
-              value={item.wastePercentage}
-              onChange={(e) =>
-                setItems((prev) =>
-                  prev.map((x, i) =>
-                    i === idx
-                      ? { ...x, wastePercentage: Number(e.target.value) }
-                      : x,
-                  ),
-                )
-              }
-              title="% merma"
-            />
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              onClick={() =>
-                setItems((prev) => prev.filter((_, i) => i !== idx))
-              }
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-            <label className="col-span-full flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
-              <input
-                type="checkbox"
-                checked={item.isNonInventoriable}
-                onChange={(e) =>
-                  setItems((prev) =>
-                    prev.map((x, i) =>
-                      i === idx
-                        ? { ...x, isNonInventoriable: e.target.checked }
-                        : x,
-                    ),
-                  )
-                }
-                className="h-3.5 w-3.5 rounded border-border"
-              />
-              Costo fijo (no descuenta inventario)
-            </label>
-          </div>
-        ))}
+              <div className="space-y-1">
+                <Label htmlFor={detail.selectId}>Ingrediente</Label>
+                <div className="flex items-center gap-1">
+                  <div className="min-w-0 flex-1">
+                    <Select
+                      id={detail.selectId}
+                      value={item.ingredientId}
+                      onChange={(e) =>
+                        setItems((prev) =>
+                          prev.map((x, i) =>
+                            i === idx
+                              ? { ...x, ingredientId: e.target.value }
+                              : x,
+                          ),
+                        )
+                      }
+                      className="min-w-0 max-w-full truncate"
+                    >
+                      {ingredients.map((ing) => (
+                        <option key={ing.id} value={ing.id}>
+                          {ing.name} ({ing.unit})
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="shrink-0"
+                    title="Eliminar ingrediente"
+                    aria-label={`Eliminar ingrediente ${idx + 1}`}
+                    onClick={() =>
+                      setItems((prev) => prev.filter((_, i) => i !== idx))
+                    }
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="min-w-0 space-y-1">
+                  <Label htmlFor={detail.qtyId}>
+                    Cantidad ({detail.unit})
+                  </Label>
+                  <Input
+                    id={detail.qtyId}
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    value={item.quantity}
+                    onChange={(e) =>
+                      setItems((prev) =>
+                        prev.map((x, i) =>
+                          i === idx
+                            ? { ...x, quantity: Number(e.target.value) }
+                            : x,
+                        ),
+                      )
+                    }
+                  />
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <Label htmlFor={detail.wasteId}>Merma</Label>
+                  <Select
+                    id={detail.wasteId}
+                    value={String(item.wastePercentage)}
+                    onChange={(e) =>
+                      setItems((prev) =>
+                        prev.map((x, i) =>
+                          i === idx
+                            ? { ...x, wastePercentage: Number(e.target.value) }
+                            : x,
+                        ),
+                      )
+                    }
+                  >
+                    {WASTE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-0.5 text-xs">
+                <p className="flex items-baseline justify-between gap-2">
+                  <span className="min-w-0 text-muted-foreground">
+                    Costo promedio:
+                  </span>
+                  <span className="shrink-0 font-medium tabular-nums">
+                    {formatMoney(detail.averageCost)}/{detail.unit}
+                  </span>
+                </p>
+                <p className="flex items-baseline justify-between gap-2">
+                  <span className="min-w-0 text-muted-foreground">
+                    Aporte por unidad producida:
+                  </span>
+                  <span className="shrink-0 font-medium tabular-nums">
+                    {detail.contribution ?? "—"}
+                  </span>
+                </p>
+              </div>
+              {detail.hasZeroCost && (
+                <p className="flex items-start gap-1.5 text-xs text-warning">
+                  <AlertTriangle
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span>
+                    Sin costo promedio registrado; el cálculo puede quedar
+                    incompleto.{" "}
+                    <a
+                      href="/inventario"
+                      className="underline underline-offset-2 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning/40"
+                    >
+                      Revisar en Inventario
+                    </a>
+                  </span>
+                </p>
+              )}
+              <div className="space-y-0.5">
+                <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={item.isNonInventoriable}
+                    onChange={(e) =>
+                      setItems((prev) =>
+                        prev.map((x, i) =>
+                          i === idx
+                            ? { ...x, isNonInventoriable: e.target.checked }
+                            : x,
+                        ),
+                      )
+                    }
+                    className="h-3.5 w-3.5 rounded border-border"
+                  />
+                  <span>No descontar del inventario</span>
+                </label>
+                <p className="pl-5 text-[11px] leading-snug text-muted-foreground">
+                  Este ingrediente sí suma al costo, pero no genera salida de
+                  inventario.
+                </p>
+              </div>
+            </div>
+          );
+        })}
         <Button
           type="button"
           variant="secondary"
@@ -374,10 +498,29 @@ export function RecipeForm({
           rows={2}
         />
       </div>
-      {costPreview && (
-        <div className="rounded-md bg-muted/50 p-3 text-sm">
-          <span className="text-muted-foreground">Costo estimado: </span>
-          <span className="font-semibold tabular-nums">{costPreview}</span>
+      {costSummary && (
+        <div className="space-y-1 rounded-md bg-muted/50 p-3 text-sm">
+          <p className="flex items-baseline justify-between gap-2">
+            <span className="text-muted-foreground">Costo total del lote:</span>
+            <span className="shrink-0 font-semibold tabular-nums">
+              {costSummary.batch}
+            </span>
+          </p>
+          <p className="flex items-baseline justify-between gap-2">
+            <span className="text-muted-foreground">Rendimiento:</span>
+            <span className="shrink-0 tabular-nums">{costSummary.yield}</span>
+          </p>
+          <p className="flex items-baseline justify-between gap-2">
+            <span className="text-muted-foreground">
+              Costo estimado por unidad:
+            </span>
+            <span className="shrink-0 font-semibold tabular-nums">
+              {costSummary.unit}
+            </span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Calculado con el costo promedio actual de Inventario.
+          </p>
         </div>
       )}
       {validationErrors.length > 0 && (

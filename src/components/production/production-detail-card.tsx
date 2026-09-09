@@ -2,13 +2,23 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { formatDateTime } from "@/lib/dates";
-import { formatCost, formatQty } from "@/lib/utils";
+import { useNumberFormatter } from "@/components/number-format-provider";
 import {
   startProductionOrderAction,
   completeProductionOrderAction,
@@ -53,62 +63,103 @@ type Detail = {
     occurredAt: Date;
     ingredient: { name: string; sku: string };
   }>;
+  ingredientStock: string;
 };
 
-export function ProductionDetailCard({ detail }: { detail: Detail }) {
+export function ProductionDetailCard({
+  detail,
+  canOperate,
+  canCancel,
+}: {
+  detail: Detail;
+  canOperate: boolean;
+  canCancel: boolean;
+}) {
+  const { formatCost, formatQty } = useNumberFormatter();
   const router = useRouter();
   const order = detail.order;
   const [showComplete, setShowComplete] = useState(false);
   const [actualQty, setActualQty] = useState(Number(order.quantity));
   const [completing, setCompleting] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [showCancel, setShowCancel] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelling, setCancelling] = useState(false);
 
   async function handleStart() {
-    if (!confirm("¿Iniciar esta producción?")) return;
+    if (starting) return;
     setStarting(true);
-    const result = await startProductionOrderAction(order.id);
-    setStarting(false);
-    if (!result.ok) {
-      alert(result.message);
-      return;
+    try {
+      const result = await startProductionOrderAction(order.id);
+      if (!result.ok) {
+        toast.error(result.message);
+        return;
+      }
+      router.refresh();
+    } catch {
+      toast.error("No se pudo iniciar la orden. Intenta de nuevo.");
+    } finally {
+      setStarting(false);
     }
-    router.refresh();
   }
 
   async function handleComplete() {
     if (actualQty <= 0) {
-      alert("El rendimiento real debe ser mayor a 0");
+      toast.error("El rendimiento real debe ser mayor a 0");
       return;
     }
     setCompleting(true);
-    const actual = actualQty !== Number(order.quantity) ? actualQty : undefined;
-    const result = await completeProductionOrderAction(order.id, actual);
-    setCompleting(false);
-    if (!result.ok) {
-      alert(result.message);
-      return;
+    try {
+      const actual = actualQty !== Number(order.quantity) ? actualQty : undefined;
+      const result = await completeProductionOrderAction(order.id, actual);
+      if (!result.ok) {
+        toast.error(result.message);
+        return;
+      }
+      setShowComplete(false);
+      router.refresh();
+    } catch {
+      toast.error("No se pudo completar la orden. Intenta de nuevo.");
+    } finally {
+      setCompleting(false);
     }
-    setShowComplete(false);
-    router.refresh();
   }
 
   async function handleCancel() {
-    const reason = prompt("Motivo de cancelación:");
-    if (!reason?.trim()) return;
-    const result = await cancelProductionOrderAction(order.id, reason.trim());
-    if (!result.ok) {
-      alert(result.message);
-      return;
+    if (!cancelReason.trim() || cancelling) return;
+    setCancelling(true);
+    try {
+      const result = await cancelProductionOrderAction(order.id, cancelReason.trim());
+      if (!result.ok) {
+        toast.error(result.message);
+        return;
+      }
+      setShowCancel(false);
+      setCancelReason("");
+      router.refresh();
+    } catch {
+      toast.error("No se pudo cancelar la orden. Intenta de nuevo.");
+    } finally {
+      setCancelling(false);
     }
-    router.refresh();
   }
 
   const isDraft = order.status === "DRAFT";
   const isInProgress = order.status === "IN_PROGRESS";
   const isCompleted = order.status === "COMPLETED";
   const isCancelled = order.status === "CANCELLED";
-  const hasYieldVariance = isCompleted && order.actualQuantity != null && Number(order.actualQuantity) !== Number(order.quantity);
-  const hasCostVariance = isCompleted && order.estimatedUnitCost != null && Number(order.estimatedUnitCost) > 0;
+  const hasRealResult = order.completedAt != null;
+  const hasYieldVariance = hasRealResult && order.actualQuantity != null && Number(order.actualQuantity) !== Number(order.quantity);
+  const hasCostVariance = hasRealResult && order.estimatedUnitCost != null && Number(order.estimatedUnitCost) > 0;
+  const displayedUnitCost = hasRealResult
+    ? order.unitCost
+    : order.estimatedUnitCost ?? order.unitCost;
+  const displayedTotalCost = hasRealResult
+    ? order.totalCost
+    : order.estimatedTotalCost ?? order.totalCost;
+  const producedQuantity = detail.movements
+    .filter((movement) => movement.movementType === "PRODUCTION_IN")
+    .reduce((sum, movement) => sum + Number(movement.quantityDelta), 0);
   const yieldPct = hasYieldVariance
     ? ((Number(order.actualQuantity!) - Number(order.quantity)) / Number(order.quantity)) * 100
     : 0;
@@ -145,7 +196,7 @@ export function ProductionDetailCard({ detail }: { detail: Detail }) {
                 Cantidad
               </span>
               <p className="mt-1 font-medium">
-                {isCompleted && order.actualQuantity
+                {hasRealResult && order.actualQuantity
                   ? `${formatQty(order.actualQuantity)} ${order.ingredient.baseUnit.code}`
                   : `${formatQty(order.quantity)} ${order.ingredient.baseUnit.code}`}
               </p>
@@ -162,7 +213,10 @@ export function ProductionDetailCard({ detail }: { detail: Detail }) {
               <span className="text-xs font-medium uppercase text-muted-foreground">
                 Costo Unitario
               </span>
-              <p className="mt-1 font-medium">{formatCost(order.unitCost)}</p>
+               <p className="mt-1 font-medium">{formatCost(displayedUnitCost)}</p>
+               {!hasRealResult && order.estimatedUnitCost ? (
+                 <p className="text-xs text-muted-foreground">Estimado</p>
+               ) : null}
               {hasCostVariance ? (
                 <p className="text-xs text-muted-foreground">
                   Est: {formatCost(order.estimatedUnitCost!)}
@@ -176,7 +230,10 @@ export function ProductionDetailCard({ detail }: { detail: Detail }) {
               <span className="text-xs font-medium uppercase text-muted-foreground">
                 Costo Total
               </span>
-              <p className="mt-1 font-medium">{formatCost(order.totalCost)}</p>
+               <p className="mt-1 font-medium">{formatCost(displayedTotalCost)}</p>
+               {!hasRealResult && order.estimatedTotalCost ? (
+                 <p className="text-xs text-muted-foreground">Estimado</p>
+               ) : null}
               {order.estimatedTotalCost ? (
                 <p className="text-xs text-muted-foreground">
                   Est: {formatCost(order.estimatedTotalCost)}
@@ -351,12 +408,16 @@ export function ProductionDetailCard({ detail }: { detail: Detail }) {
 
       {isDraft ? (
         <div className="flex gap-3">
-          <Button onClick={handleStart} disabled={starting}>
-            {starting ? "Iniciando..." : "Iniciar Producción"}
-          </Button>
-          <Button variant="danger" onClick={handleCancel}>
-            Cancelar Orden
-          </Button>
+          {canOperate ? (
+            <Button onClick={handleStart} disabled={starting}>
+              {starting ? "Iniciando..." : "Iniciar Producción"}
+            </Button>
+          ) : null}
+          {canCancel ? (
+            <Button variant="danger" onClick={() => setShowCancel(true)} disabled={starting}>
+              Cancelar Orden
+            </Button>
+          ) : null}
         </div>
       ) : null}
 
@@ -364,12 +425,16 @@ export function ProductionDetailCard({ detail }: { detail: Detail }) {
         <div>
           {!showComplete ? (
             <div className="flex gap-3">
-              <Button onClick={() => { setActualQty(Number(order.quantity)); setShowComplete(true); }}>
-                Completar Producción
-              </Button>
-              <Button variant="danger" onClick={handleCancel}>
-                Cancelar Orden
-              </Button>
+              {canOperate ? (
+                <Button onClick={() => { setActualQty(Number(order.quantity)); setShowComplete(true); }}>
+                  Completar Producción
+                </Button>
+              ) : null}
+              {canCancel ? (
+                <Button variant="danger" onClick={() => setShowCancel(true)}>
+                  Cancelar Orden
+                </Button>
+              ) : null}
             </div>
           ) : (
             <div className="rounded-[12px] border border-border p-4 space-y-3">
@@ -380,10 +445,11 @@ export function ProductionDetailCard({ detail }: { detail: Detail }) {
                 </p>
               </div>
               <div className="space-y-1">
-                <Label>Rendimiento real ({order.ingredient.baseUnit.code})</Label>
+                 <Label htmlFor="production-actual-quantity">Rendimiento real ({order.ingredient.baseUnit.code})</Label>
                 <div className="flex gap-2">
                   <Input
-                    type="number"
+                     id="production-actual-quantity"
+                     type="number"
                     min="0.001"
                     step="0.001"
                     value={actualQty}
@@ -413,6 +479,49 @@ export function ProductionDetailCard({ detail }: { detail: Detail }) {
           )}
         </div>
       ) : null}
+
+      {isCompleted && canCancel ? (
+        <div className="flex gap-3">
+          <Button variant="danger" onClick={() => setShowCancel(true)} disabled={cancelling}>
+            Anular producción
+          </Button>
+        </div>
+      ) : null}
+
+      <Dialog open={showCancel} onOpenChange={setShowCancel}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {isCompleted ? "Anular producción" : "Cancelar orden"}
+            </DialogTitle>
+            <DialogDescription>
+              {isCompleted
+                ? `Se retirarán ${formatQty(producedQuantity)} ${order.ingredient.baseUnit.code} de ${order.ingredient.name} y se revertirán los insumos consumidos. Hay ${formatQty(detail.ingredientStock)} ${order.ingredient.baseUnit.code} disponibles. Esta acción queda auditada.`
+                : "La orden quedará cancelada y no generará movimientos de inventario."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="production-cancel-reason">Motivo</Label>
+            <Textarea
+              id="production-cancel-reason"
+              value={cancelReason}
+              onChange={(event) => setCancelReason(event.target.value)}
+              placeholder="Describe por qué se cancela la orden"
+              maxLength={300}
+              rows={3}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setShowCancel(false)} disabled={cancelling}>
+              Volver
+            </Button>
+            <Button type="button" variant="danger" onClick={handleCancel} disabled={cancelling || !cancelReason.trim()}>
+              {cancelling ? "Procesando..." : isCompleted ? "Confirmar anulación" : "Confirmar cancelación"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

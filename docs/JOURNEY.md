@@ -14,8 +14,9 @@ Comprar insumos ──→ receivePurchase: convierte a base, costo promedio, kar
    ↓
 Crear subproducto (ej. jalea) ──→ saveSubproductRecipe (no anidados)
    ↓
-Producir ──→ createProductionOrder (DRAFT) → startProductionOrder (IN_PROGRESS)
+Producir ──→ createProductionOrder (IN_PROGRESS, opción principal; o DRAFT)
           → completeProductionOrder (descuenta insumos, acredita producto)
+          → cancelProductionOrder (ADMIN; reversa controlada si ya completó)
    ↓
 Crear producto + receta ──→ saveRecipe (costo y margen automáticos)
    ↓
@@ -30,4 +31,5 @@ Analizar ──→ /resumen (getDashboard) · /reportes (CSV) · vistas bi_* (Po
 
 **Reglas que el flujo demuestra:** precios sin IVA + 12% al vender (DEC-01),
 promedio ponderado (DEC-02), venta sin stock con advertencia (DEC-03), una caja
-abierta (DEC-05), anulación lógica (DEC-07), snapshots (DEC-08).
+abierta (DEC-05), anulación lógica (DEC-07), reversa de producción con stock
+disponible (DEC-19), snapshots (DEC-08).

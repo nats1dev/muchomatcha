@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
-import { formatMoney } from "@/lib/utils";
+import { useNumberFormatter } from "@/components/number-format-provider";
 
 type Product = {
   id: string;
@@ -42,6 +42,7 @@ export function SaleForm({
   taxRate: number;
   cashOpen: boolean;
 }) {
+  const { formatMoney } = useNumberFormatter();
   const router = useRouter();
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");

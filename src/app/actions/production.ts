@@ -29,6 +29,7 @@ export async function createProductionOrderAction(payload: unknown): Promise<
     orderId: string;
     orderNumber: number;
     estimatedUnitCost: string;
+    status: string;
   }>
 > {
   try {
@@ -47,6 +48,7 @@ export async function createProductionOrderAction(payload: unknown): Promise<
         orderId: result.order.id,
         orderNumber: result.order.orderNumber,
         estimatedUnitCost: result.estimatedUnitCost,
+        status: result.order.status,
       },
     };
   } catch (e) {
@@ -112,6 +114,7 @@ export async function cancelProductionOrderAction(
     });
     revalidatePath("/produccion");
     revalidatePath("/inventario");
+    revalidatePath("/resumen");
     return { ok: true };
   } catch (e) {
     return toActionError(e);

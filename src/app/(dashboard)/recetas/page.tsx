@@ -9,7 +9,7 @@ export default async function RecetasPage() {
   if (!session?.user?.businessId) return null;
   const businessId = session.user.businessId;
 
-  const [recipesRaw, missing, products, ingredients] = await Promise.all([
+  const [recipesRaw, missingRaw, products, ingredients] = await Promise.all([
     listRecipes(businessId),
     productsWithoutRecipe(businessId),
     prisma.product.findMany({
@@ -22,6 +22,13 @@ export default async function RecetasPage() {
       orderBy: { name: "asc" },
     }),
   ]);
+
+  // `productsWithoutRecipe` devuelve el `Product` completo de Prisma
+  // (`salePrice: Decimal`, `Date`, …), que React no puede serializar a un
+  // Client Component. Se mapea a `{ id, name }`, que es lo único que usa
+  // `RecipesView` (misma convención que el resto de `page.tsx`: solo
+  // `string`/`number` cruzan la frontera Server → Client).
+  const missing = missingRaw.map((p) => ({ id: p.id, name: p.name }));
 
   const recipes = recipesRaw.map((r) => ({
     id: r.id,

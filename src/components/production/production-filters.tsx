@@ -23,6 +23,7 @@ export function ProductionFilters() {
       >
         <option value="">Todos los estados</option>
         <option value="DRAFT">Borrador</option>
+        <option value="IN_PROGRESS">En progreso</option>
         <option value="COMPLETED">Completada</option>
         <option value="CANCELLED">Cancelada</option>
       </select>
